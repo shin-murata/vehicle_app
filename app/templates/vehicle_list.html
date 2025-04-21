@@ -1,0 +1,23 @@
+<!-- vehicle_list.html -->
+{% extends "base.html" %}
+{% block title %}車両一覧{% endblock %}
+{% block content %}
+<h2>📋 登録済み車両一覧</h2>
+<form method="get">
+  <input type="text" name="keyword" placeholder="車名・型式・入庫番号" value="{{ keyword }}">
+  <button type="submit">検索</button>
+</form>
+
+<table>
+  <tr><th>ID</th><th>車名</th><th>型式</th><th>年式</th><th>管理番号</th></tr>
+  {% for v in vehicles %}
+  <tr>
+    <td>{{ v.id }}</td>
+    <td>{{ v.car_name }}</td>
+    <td>{{ v.model_code }}</td>
+    <td>{{ v.year }}</td>
+    <td>{{ v.internal_code }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

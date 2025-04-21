@@ -1,0 +1,10 @@
+<!-- import_csv.html -->
+{% extends "base.html" %}
+{% block title %}CSVインポート{% endblock %}
+{% block content %}
+<h2>📁 CSVファイルをアップロード</h2>
+<form method="post" enctype="multipart/form-data">
+  <input type="file" name="file" required>
+  <button type="submit">インポート</button>
+</form>
+{% endblock %}
