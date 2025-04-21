@@ -13,7 +13,6 @@ class Vehicle(db.Model):
     car_name = db.Column(db.String)        # 車名
     model_code = db.Column(db.String)      # 認定型式
     year = db.Column(db.Integer)           # 年式
-    maker_name = db.Column(db.String)      # メーカー（予備的に残す場合）
     vin = db.Column(db.String)             # 車台番号
     color = db.Column(db.String)           # 車色
     estimate_price = db.Column(db.Integer) # 見積金額
@@ -23,7 +22,6 @@ class Vehicle(db.Model):
     manufacturer = db.relationship('Manufacturer', back_populates='vehicles')
 
     scraped_info = db.relationship('ScrapedInfo', back_populates='vehicle', cascade='all, delete-orphan')
-
 
 # 🏭 Manufacturer master table
 class Manufacturer(db.Model):

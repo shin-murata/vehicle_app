@@ -1,4 +1,4 @@
-<!-- base.html -->
+<!-- ✅ base.html：タイトルのブロックは1回だけ定義、h1は固定文言に -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -22,22 +22,12 @@
     </nav>
   </header>
 
-  {% block content %}{% endblock %}
-</body>
-</html><!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <title>{% block title %}車両管理{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
-    <header><h1>🚗 車両管理アプリ</h1></header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
 
-    <main>
-        {% block content %}{% endblock %}
-    </main>
-
-    <footer><small>© 2025 Shinichiro Murata</small></footer>
+  <footer>
+    <small>© 2025 Shinichiro Murata</small>
+  </footer>
 </body>
 </html>

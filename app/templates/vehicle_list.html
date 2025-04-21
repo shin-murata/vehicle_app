@@ -1,23 +1,48 @@
-<!-- vehicle_list.html -->
+<!-- templates/vehicle_list.html -->
 {% extends "base.html" %}
-{% block title %}車両一覧{% endblock %}
-{% block content %}
-<h2>📋 登録済み車両一覧</h2>
-<form method="get">
-  <input type="text" name="keyword" placeholder="車名・型式・入庫番号" value="{{ keyword }}">
-  <button type="submit">検索</button>
-</form>
 
-<table>
-  <tr><th>ID</th><th>車名</th><th>型式</th><th>年式</th><th>管理番号</th></tr>
-  {% for v in vehicles %}
-  <tr>
-    <td>{{ v.id }}</td>
-    <td>{{ v.car_name }}</td>
-    <td>{{ v.model_code }}</td>
-    <td>{{ v.year }}</td>
-    <td>{{ v.internal_code }}</td>
-  </tr>
-  {% endfor %}
-</table>
+{% block content %}
+  <h2>📋 登録済み車両一覧</h2>
+
+  <form method="get">
+    <input type="text" name="keyword" placeholder="車名・型式・入庫番号" value="{{ keyword }}">
+    <button type="submit">検索</button>
+  </form>
+
+  <table>
+    <tr>
+      <th>ID</th>
+      <th>入庫番号</th>
+      <th>自社管理番号</th>
+      <th>メーカー</th>
+      <th>車名</th>
+      <th>認定型式</th>
+      <th>年式</th>
+      <th>車台番号</th>
+      <th>車色</th>
+      <th>引取完了日</th>
+      <th>依頼元</th>
+      <th>見積金額</th>
+      <th>ステータス</th>
+      <th>状態</th>
+    </tr>
+    {% for v in vehicles %}
+    <tr>
+      <td>{{ v.id }}</td>
+      <td>{{ v.intake_number }}</td>
+      <td>{{ v.internal_code }}</td>
+      <td>{{ v.manufacturer.name if v.manufacturer else '不明' }}</td>
+      <td>{{ v.car_name }}</td>
+      <td>{{ v.model_code }}</td>
+      <td>{{ v.year }}</td>
+      <td>{{ v.vin }}</td>
+      <td>{{ v.color }}</td>
+      <td>{{ v.pickup_date }}</td>
+      <td>{{ v.client }}</td>
+      <td>{{ v.estimate_price }}</td>
+      <td>{{ v.status }}</td>
+      <td>{{ v.condition }}</td>
+    </tr>
+    {% endfor %}
+  </table>
 {% endblock %}

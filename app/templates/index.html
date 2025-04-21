@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block title %}トップページ{% endblock %}
+
+{% block content %}
+  <h2>🚗 入庫車管理メニュー</h2>
+  <ul>
+    <li><a href="{{ url_for('routes.import_csv') }}">📥 CSVインポート</a></li>
+    <li><a href="{{ url_for('routes.list_vehicles') }}">📋 登録済み車両一覧</a></li>
+  </ul>
+{% endblock %}

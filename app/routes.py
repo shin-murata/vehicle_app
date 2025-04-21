@@ -1,23 +1,10 @@
-# ✅ 入庫車管理アプリ：CSV取り込み＋スクレイピング構想
-
-# ステップ全体の流れ
-# 1. CSVファイルを取り込む
-# 2. Vehicleに新規レコードを追加（重複チェックあり）
-# 3. 車名 + 型式でスクレイピング
-# 4. Manufacturerに追加（重複チェックあり）
-# 5. Vehicle.manufacturer_id に外部キーとして紐付け
-# 6. ScrapedInfo に履歴として保存（任意）
-
-# --- FlaskルートでのCSVインポート処理例 ---
-# ファイル: app/routes.py に追加する
-
 import time
 import csv
 import re
 import unicodedata
 import pandas as pd
 from flask import Blueprint, request, jsonify, render_template, redirect, url_for
-from sqlalchemy import and_
+from sqlalchemy import and_, or_  # ← ✅ ここに or_ を追加
 from app import db
 from app.models import Vehicle, Manufacturer, ScrapedInfo
 from scraper.scrape_maker import scrape_manufacturer
@@ -25,11 +12,15 @@ from datetime import date
 
 bp = Blueprint('routes', __name__)
 
-@bp.route('/import_csv', methods=['POST'])
+@bp.route("/")
+def index():
+    return render_template("index.html")
+
+@bp.route('/import_csv', methods=['GET', 'POST'])  # ← GETを追加！
 def import_csv():
     if request.method == 'GET':
         return render_template("import_csv.html")
-    
+
     print("\n✅ /import_csv に到達")
     file = request.files.get('file')
     if not file:
@@ -37,14 +28,14 @@ def import_csv():
 
     df = pd.read_csv(file, encoding='cp932')
 
-    # ✅ 事前にスクレイピング済みIDを除外
-    done_ids = db.session.query(Vehicle.internal_code).join(ScrapedInfo).filter(
-        ScrapedInfo.manufacturer_name.notin_(["仮メーカー", "不明"])
-    ).all()
-    done_ids = [code[0] for code in done_ids]
-    df = df[~df["自社管理番号"].isin(done_ids)]
-    print(f"🧹 スクレイピング済みの {len(done_ids)} 件を除外しました → 処理対象: {len(df)} 件")
+    # ✅ 半角カタカナを全角に統一
+    def to_zenkaku(text):
+        if isinstance(text, str):
+            return unicodedata.normalize('NFKC', text)
+        return text
 
+    df = df.applymap(to_zenkaku)
+    
     added = 0
     fail_count = 0
     success_count = 0
@@ -65,24 +56,71 @@ def import_csv():
             print(f"⏸ {batch_size}件処理ごとに休憩中...")
             time.sleep(10)
 
-        vehicle = Vehicle.query.filter_by(internal_code=row.自社管理番号).first()
+        vehicle = Vehicle.query.filter_by(intake_number=row.入庫番号).first()
+
         if not vehicle:
             vehicle = Vehicle(
+                intake_number=row.入庫番号,
+                status=row.ステータス,
+                condition=row.状態,
+                pickup_date=row.引取完了日 if not pd.isna(row.引取完了日) else None,
+                client=row.依頼元,
                 car_name=row.車名,
                 model_code=row.認定型式,
                 year=row.年式,
+                vin=row.車台番号,
+                color=row.車色,
+                estimate_price=row.見積金額,
                 internal_code=row.自社管理番号
             )
             db.session.add(vehicle)
-            print(f"📝 Vehicle 追加: {row.自社管理番号}")
+            print(f"📝 Vehicle 追加: {row.入庫番号}")
         else:
-            print(f"📦 Vehicle 既に存在: {row.自社管理番号}")
+            print(f"📦 Vehicle 既に存在: {row.入庫番号}")
+                # ✅ 既存データが None のカラムを CSV の値で補完
+            if vehicle.intake_number is None and not pd.isna(row.入庫番号):
+                vehicle.intake_number = row.入庫番号
+
+            if vehicle.status is None and not pd.isna(row.ステータス):
+                vehicle.status = row.ステータス
+
+            if vehicle.condition is None and not pd.isna(row.状態):
+                vehicle.condition = row.状態
+
+            if vehicle.pickup_date is None and not pd.isna(row.引取完了日):
+                vehicle.pickup_date = row.引取完了日
+
+            if vehicle.client is None and not pd.isna(row.依頼元):
+                vehicle.client = row.依頼元
+
+            if vehicle.car_name is None and not pd.isna(row.車名):
+                vehicle.car_name = row.車名
+
+            if vehicle.model_code is None and not pd.isna(row.認定型式):
+                vehicle.model_code = row.認定型式
+
+            if vehicle.year is None and not pd.isna(row.年式):
+                vehicle.year = row.年式
+
+            if vehicle.vin is None and not pd.isna(row.車台番号):
+                vehicle.vin = row.車台番号
+
+            if vehicle.color is None and not pd.isna(row.車色):
+                vehicle.color = row.車色
+
+            if vehicle.estimate_price is None and not pd.isna(row.見積金額):
+                vehicle.estimate_price = row.見積金額
+
+            # ✅ 変更があった場合に明示的に再追加
+            db.session.add(vehicle)
 
         scraped = ScrapedInfo.query.filter_by(vehicle_id=vehicle.id).first()
-        # ✅ すでに仮メーカー以外が登録されていたらスキップ
-        if scraped and scraped.manufacturer_name not in ["仮メーカー", "不明"]:
-            print(f"⏭ スクレイピング済みスキップ: {row.自社管理番号}")
+
+        # ✅ 「すでに仮メーカー or 不明」が登録されていればスキップ
+        if scraped and scraped.manufacturer_name in ["仮メーカー", "不明"]:
+            print(f"⏭ 仮メーカー or 不明は再スクレイピング不要: {row.自社管理番号}")
             continue
+
 
         # ✅ 正規化＋接頭辞除去でキーワードを生成
         car_name_normalized = unicodedata.normalize("NFKC", str(row.車名)).replace("・", "")
