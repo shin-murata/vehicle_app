@@ -1,4 +1,3 @@
-<!-- templates/vehicle_list.html -->
 {% extends "base.html" %}
 
 {% block content %}
@@ -11,21 +10,32 @@
 
   <table>
     <tr>
-      <th>ID</th>
-      <th>入庫番号</th>
-      <th>自社管理番号</th>
+      {# 🔁 並び替え可能なカラムにはリンク + ▲▼ #}
+      {% macro sort_link(label, field) %}
+        <a href="{{ url_for('routes.list_vehicles', keyword=keyword, sort=field, order='asc' if sort_key != field or sort_order == 'desc' else 'desc') }}">
+          {{ label }}
+          {% if sort_key == field %}
+            {{ '▲' if sort_order == 'asc' else '▼' }}
+          {% endif %}
+        </a>
+      {% endmacro %}
+
+      <th>{{ sort_link('ID', 'id') }}</th>
+      <th>{{ sort_link('入庫番号', 'intake_number') }}</th>
+      <th>{{ sort_link('自社管理番号', 'internal_code') }}</th>
       <th>メーカー</th>
       <th>車名</th>
       <th>認定型式</th>
       <th>年式</th>
       <th>車台番号</th>
       <th>車色</th>
-      <th>引取完了日</th>
-      <th>依頼元</th>
+      <th>{{ sort_link('引取完了日', 'pickup_date') }}</th>
+      <th>{{ sort_link('依頼元', 'client') }}</th>
       <th>見積金額</th>
       <th>ステータス</th>
       <th>状態</th>
     </tr>
+
     {% for v in vehicles %}
     <tr>
       <td>{{ v.id }}</td>

@@ -188,29 +188,52 @@ def import_csv():
         added += 1
 
     # ✅ CSVとして失敗IDを出力
+    import os  # すでに冒頭にある場合は不要
+    
+    fail_filename = None
+
+    # ✅ CSVとして失敗IDを出力（static フォルダに保存）
     if fail_ids:
-        with open("failed_ids.csv", mode="w", newline="") as f:
+        fail_filename = "failed_ids.csv"
+        fail_path = os.path.join("static", fail_filename)  # ← 保存先を変更
+
+        with open(fail_path, mode="w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["internal_code"])
             for code in fail_ids:
                 writer.writerow([code])
-        print(f"📄 失敗データをfailed_ids.csvに書き出しました（{len(fail_ids)}件）")
-
+        print(f"📄 失敗データを static/{fail_filename} に書き出しました（{len(fail_ids)}件）")
+    # ✅ 成功・失敗に関わらず DB への変更は最後に一括コミット
     db.session.commit()
-    return jsonify({
-        'message': f'{added} 件の車両を登録しました',
-        'success_count': success_count,
-        'fail_count': len(fail_ids),
-        'fail_file': "failed_ids.csv" if fail_ids else None
-    })
+        
+    # ✅ 以前の jsonify を削除して以下に差し替え
+    return render_template("import_result.html",
+        message=f"{added} 件の車両を登録しました",
+        success_count=success_count,
+        fail_count=len(fail_ids),
+        fail_file="failed_ids.csv" if fail_ids else None
+    )
 
 
 # ✅ 一覧表示 & キーワード絞り込みルート
 @bp.route("/vehicles", methods=["GET"])
 def list_vehicles():
     keyword = request.args.get("keyword", "").strip()
+    sort_key = request.args.get("sort", "id")         # デフォルトは id
+    sort_order = request.args.get("order", "desc")    # デフォルトは降順
+
+    # ✅ 対応可能なソートキー
+    sort_fields = {
+        "id": Vehicle.id,
+        "intake_number": Vehicle.intake_number,
+        "internal_code": Vehicle.internal_code,
+        "pickup_date": Vehicle.pickup_date,
+        "client": Vehicle.client,
+    }
+
     query = Vehicle.query
 
+    # 🔍 キーワード検索
     if keyword:
         query = query.filter(
             or_(
@@ -220,5 +243,13 @@ def list_vehicles():
             )
         )
 
-    vehicles = query.order_by(Vehicle.id.desc()).all()
-    return render_template("vehicle_list.html", vehicles=vehicles, keyword=keyword)
+    # ⬆️ 並び替え処理
+    if sort_key in sort_fields:
+        sort_column = sort_fields[sort_key]
+        if sort_order == "asc":
+            query = query.order_by(sort_column.asc())
+        else:
+            query = query.order_by(sort_column.desc())
+
+    vehicles = query.all()
+    return render_template("vehicle_list.html", vehicles=vehicles, keyword=keyword, sort_key=sort_key, sort_order=sort_order)

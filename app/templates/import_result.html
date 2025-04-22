@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h2>✅ インポート完了</h2>
+  <p><strong>{{ message }}</strong></p>
+  <ul>
+    <li>成功件数: {{ success_count }} 件</li>
+    <li>失敗件数: {{ fail_count }} 件</li>
+    {% if fail_file %}
+      <li><a href="{{ url_for('static', filename=fail_file) }}" download>失敗IDのCSVをダウンロード</a></li>
+    {% endif %}
+  </ul>
+
+  <a href="{{ url_for('routes.list_vehicles') }}">
+    <button>📋 車両一覧へ戻る</button>
+  </a>
+{% endblock %}
