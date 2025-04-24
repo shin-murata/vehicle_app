@@ -1,4 +1,5 @@
 from app import db
+from datetime import datetime
 
 # 🚘 Vehicle table (Main vehicle information)
 class Vehicle(db.Model):
@@ -45,3 +46,14 @@ class ScrapedInfo(db.Model):
     source_url = db.Column(db.String)            # 取得元URL
 
     vehicle = db.relationship('Vehicle', back_populates='scraped_info')
+
+# 新しいモデル
+class Estimation(db.Model):
+    __tablename__ = 'estimations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    maker = db.Column(db.String)         # メーカー（手入力も可）
+    car_name = db.Column(db.String)
+    model_code = db.Column(db.String)
+    estimate_price = db.Column(db.Integer)
+    estimated_at = db.Column(db.DateTime, default=datetime.utcnow)  # 自動記録

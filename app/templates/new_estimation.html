@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h2>📝 新規値付けフォーム</h2>
+
+  <!-- スピンボタン非表示 -->
+  <style>
+    /* Chrome, Safari, Edge */
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+
+    /* Firefox */
+    input[type=number] {
+      -moz-appearance: textfield;
+    }
+
+    form div {
+      margin-bottom: 1em;
+    }
+
+    label {
+      display: inline-block;
+      width: 100px;
+    }
+
+    input {
+      padding: 4px 8px;
+    }
+  </style>
+
+  <form method="POST" action="{{ url_for('routes.new_estimation') }}">
+    <div>
+      <label for="maker">メーカー：</label>
+      <input type="text" name="maker" id="maker" value="{{ maker }}" required>
+    </div>
+
+    <div>
+      <label for="car_name">車名：</label>
+      <input type="text" name="car_name" id="car_name" value="{{ car_name }}" required>
+    </div>
+
+    <div>
+      <label for="model_code">認定型式：</label>
+      <input type="text" name="model_code" id="model_code" value="{{ model_code }}" required>
+    </div>
+
+    <div>
+      <label for="estimate_price">見積金額：</label>
+      <input type="number" name="estimate_price" id="estimate_price" min="0" required>
+    </div>
+
+    <button type="submit">💾 登録</button>
+    <a href="{{ url_for('routes.list_vehicles') }}">
+      <button type="button">↩ 戻る</button>
+    </a>
+  </form>
+
+{% endblock %}

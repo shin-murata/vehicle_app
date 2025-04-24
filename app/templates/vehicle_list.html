@@ -34,6 +34,7 @@
       <th>見積金額</th>
       <th>ステータス</th>
       <th>状態</th>
+      <th>値付け</th>
     </tr>
 
     {% for v in vehicles %}
@@ -52,6 +53,11 @@
       <td>{{ v.estimate_price }}</td>
       <td>{{ v.status }}</td>
       <td>{{ v.condition }}</td>
+      <td>
+        <a href="{{ url_for('routes.new_estimation', maker=v.manufacturer.name if v.manufacturer else '', car_name=v.car_name, model_code=v.model_code) }}">
+          <button>値付け</button>
+        </a>
+      </td>      
     </tr>
     {% endfor %}
   </table>
