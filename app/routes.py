@@ -156,6 +156,17 @@ def import_csv():
                 scraped.retrieved_date = date.today()
                 scraped.source_url = "https://www.kurumaerabi.com/"
                 print("♻️ 仮メーカーを不明に更新")
+            else:
+                scraped = ScrapedInfo(
+                    vehicle=vehicle,
+                    manufacturer_name="不明",
+                    model_spec="取得失敗",
+                    retrieved_date=date.today(),
+                    source_url="https://www.kurumaerabi.com/"
+                )
+                db.session.add(scraped)
+                print("🆕 不明として scraped_info を新規作成")
+
             continue
         else:
             success_count += 1
@@ -296,4 +307,53 @@ def new_estimation():
         maker=maker,
         car_name=car_name,
         model_code=model_code
+    )
+
+@bp.route("/estimations")
+def list_estimations():
+    estimations = Estimation.query.order_by(Estimation.estimated_at.desc()).all()
+    return render_template("estimation_list.html", estimations=estimations)
+
+@bp.route("/vehicles_missing_manufacturer")
+def vehicles_missing_manufacturer():
+    vehicles = Vehicle.query.join(ScrapedInfo).filter(ScrapedInfo.manufacturer_name == "不明").all()
+    return render_template("vehicles_missing_manufacturer.html", vehicles=vehicles)
+
+@bp.route("/edit_manufacturer/<int:vehicle_id>", methods=["GET", "POST"])
+def edit_manufacturer(vehicle_id):
+    vehicle = Vehicle.query.get_or_404(vehicle_id)
+    scraped = ScrapedInfo.query.filter_by(vehicle_id=vehicle_id).first()
+
+    if request.method == "POST":
+        # プルダウン or 手入力のどちらかを優先（手入力があればそれを優先）
+        selected = request.form.get("manufacturer_name") or ""
+        manual = request.form.get("manufacturer_name_custom") or ""
+        new_maker = manual.strip() if manual else selected.strip()
+
+        if not new_maker:
+            return "❌ メーカー名は必須です", 400
+
+        if scraped:
+            scraped.manufacturer_name = new_maker
+        else:
+            scraped = ScrapedInfo(
+                vehicle_id=vehicle.id,
+                manufacturer_name=new_maker,
+                model_spec="手動入力",
+                retrieved_date=date.today(),
+                source_url="manual"
+            )
+            db.session.add(scraped)
+
+        db.session.commit()
+        return redirect(url_for('routes.list_vehicles'))
+
+    # GET時にすべてのマスターメーカーを取得して渡す
+    all_manufacturers = Manufacturer.query.order_by(Manufacturer.name).all()
+
+    return render_template(
+        "edit_manufacturer.html",
+        vehicle=vehicle,
+        scraped=scraped,
+        all_manufacturers=all_manufacturers
     )

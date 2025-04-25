@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h2>🛠 メーカー編集</h2>
+
+  <form method="POST">
+    <div>
+      <label>車名：</label> {{ vehicle.car_name }}
+    </div>
+    <div>
+      <label>認定型式：</label> {{ vehicle.model_code }}
+    </div>
+    <div>
+      <label for="manufacturer_name">メーカー（選択または手入力）：</label>
+      <select name="manufacturer_name" id="manufacturer_name">
+        <option value="">▼ 選択してください</option>
+        {% for m in all_manufacturers %}
+          <option value="{{ m.name }}"
+            {% if scraped and scraped.manufacturer_name == m.name %}selected{% endif %}>
+            {{ m.name }}
+          </option>
+        {% endfor %}
+      </select>
+      <p>または手入力：</p>
+      <input type="text" name="manufacturer_name_custom" placeholder="例: スズキ">
+    </div>
+    <button type="submit">💾 保存</button>
+    <a href="{{ url_for('routes.list_vehicles') }}"><button type="button">↩ キャンセル</button></a>
+  </form>
+  
+{% endblock %}

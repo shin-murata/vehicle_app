@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h2>📋 値付け履歴一覧（新しい順）</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>メーカー</th>
+        <th>車名</th>
+        <th>認定型式</th>
+        <th>見積金額</th>
+        <th>値付け日</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for est in estimations %}
+      <tr>
+        <td>{{ est.id }}</td>
+        <td>{{ est.maker }}</td>
+        <td>{{ est.car_name }}</td>
+        <td>{{ est.model_code }}</td>
+        <td>{{ est.estimate_price }}</td>
+        <td>{{ est.estimated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <br>
+  <a href="{{ url_for('routes.list_vehicles') }}">
+    <button>↩ 車両一覧に戻る</button>
+  </a>
+{% endblock %}

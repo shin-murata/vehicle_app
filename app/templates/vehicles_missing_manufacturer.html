@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h2>❓ メーカー不明の車両一覧</h2>
+
+  <table>
+    <tr>
+      <th>ID</th>
+      <th>車名</th>
+      <th>型式</th>
+      <th>現在のメーカー</th>
+      <th>操作</th>
+    </tr>
+    {% for v in vehicles %}
+    <tr>
+      <td>{{ v.id }}</td>
+      <td>{{ v.car_name }}</td>
+      <td>{{ v.model_code }}</td>
+      <td>{{ v.scraped_info[0].manufacturer_name if v.scraped_info else 'なし' }}</td>
+      <td>
+        <a href="{{ url_for('routes.edit_manufacturer', vehicle_id=v.id) }}">
+          <button>編集</button>
+        </a>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+{% endblock %}
