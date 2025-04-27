@@ -3,6 +3,10 @@
 {% block title %}トップページ{% endblock %}
 
 {% block content %}
-  <h2>🚗 入庫車管理メニュー</h2>
+<!-- ✅ ここでセンタリング！ -->
+<div style="text-align: center;">
+  <h2>入庫車管理メニュー</h2>
+  <img src="{{ url_for('static', filename='favicon.png') }}" alt="アプリアイコン" width="200" height="200" style="display: block; margin: 0 auto;">
   <p>上のメニューから操作を選んでください。</p>
+</div>
 {% endblock %}
