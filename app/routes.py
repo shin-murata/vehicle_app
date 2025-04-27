@@ -8,7 +8,10 @@ from sqlalchemy import and_, or_  # ← ✅ ここに or_ を追加
 from app import db
 from app.models import Vehicle, Manufacturer, ScrapedInfo, Estimation
 from scraper.scrape_maker import scrape_manufacturer
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
+
+# ✅ 日本時間タイムゾーンを定義
+JST = timezone(timedelta(hours=9))
 
 bp = Blueprint('routes', __name__)
 
@@ -153,7 +156,7 @@ def import_csv():
             print(f"⚠️ メーカー取得失敗（{fail_count}件目）")
             if scraped:
                 scraped.manufacturer_name = "不明"
-                scraped.retrieved_date = date.today()
+                scraped.retrieved_date = datetime.now(JST)
                 scraped.source_url = "https://www.kurumaerabi.com/"
                 print("♻️ 仮メーカーを不明に更新")
             else:
@@ -161,7 +164,7 @@ def import_csv():
                     vehicle=vehicle,
                     manufacturer_name="不明",
                     model_spec="取得失敗",
-                    retrieved_date=date.today(),
+                    retrieved_date=datetime.now(JST).date(),
                     source_url="https://www.kurumaerabi.com/"
                 )
                 db.session.add(scraped)
@@ -182,7 +185,7 @@ def import_csv():
         if scraped:
             scraped.manufacturer_name = maker_name
             scraped.model_spec = "取得予定"
-            scraped.retrieved_date = date.today()
+            scraped.retrieved_date = datetime.now(JST)
             scraped.source_url = "https://www.kurumaerabi.com/"
             print(f"♻️ スクレイピング情報を更新: {row.自社管理番号}")
         else:
@@ -190,7 +193,7 @@ def import_csv():
                 vehicle=vehicle,
                 manufacturer_name=maker_name,
                 model_spec="取得予定",
-                retrieved_date=date.today(),
+                retrieved_date=datetime.now(JST).date(),
                 source_url="https://www.kurumaerabi.com/"
             )
             db.session.add(scraped_info)
@@ -340,7 +343,7 @@ def edit_manufacturer(vehicle_id):
                 vehicle_id=vehicle.id,
                 manufacturer_name=new_maker,
                 model_spec="手動入力",
-                retrieved_date=date.today(),
+                retrieved_date=datetime.now(JST).date(),
                 source_url="manual"
             )
             db.session.add(scraped)

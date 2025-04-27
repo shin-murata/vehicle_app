@@ -42,7 +42,7 @@ class ScrapedInfo(db.Model):
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'))
     manufacturer_name = db.Column(db.String)     # メーカー
     model_spec = db.Column(db.String)            # 型式別スペック
-    retrieved_date = db.Column(db.Date)          # 取得日
+    retrieved_date = db.Column(db.DateTime)          # 取得日
     source_url = db.Column(db.String)            # 取得元URL
 
     vehicle = db.relationship('Vehicle', back_populates='scraped_info')
