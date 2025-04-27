@@ -4,6 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <title>{% block title %}車両管理{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.png') }}" type="image/png">
   <style>
     body { font-family: sans-serif; margin: 2rem; }
     header { margin-bottom: 1rem; }
@@ -15,7 +16,7 @@
 </head>
 <body>
   <header>
-    <h1>🚗 入庫車管理システム</h1>
+    <h1>入庫車管理システム</h1>
     <nav>
       <a href="{{ url_for('routes.index') }}">🏠 ホーム</a> |
       <a href="{{ url_for('routes.import_csv') }}">CSV取り込み</a> |
