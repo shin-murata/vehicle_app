@@ -52,8 +52,13 @@ class Estimation(db.Model):
     __tablename__ = 'estimations'
 
     id = db.Column(db.Integer, primary_key=True)
-    maker = db.Column(db.String)         # メーカー（手入力も可）
-    car_name = db.Column(db.String)
-    model_code = db.Column(db.String)
-    estimate_price = db.Column(db.Integer)
+    maker = db.Column(db.String)          # メーカー（手入力も可）
+    car_name = db.Column(db.String)        # 車名
+    model_code = db.Column(db.String)      # 型式
+    owner = db.Column(db.String)           # 持ち主（値付け先）← NEW
+    estimate_price = db.Column(db.Integer) # 査定価格（見積もり金額）
+    sale_price = db.Column(db.Integer)     # 販売価格 ← NEW
+    buyer = db.Column(db.String)           # 販売先 ← NEW
+    sold_at = db.Column(db.DateTime)        # 販売日 ← NEW
+    note = db.Column(db.String)             # 備考 ← NEW
     estimated_at = db.Column(db.DateTime, default=datetime.utcnow)  # 自動記録

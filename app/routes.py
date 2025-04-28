@@ -315,6 +315,13 @@ def new_estimation():
 @bp.route("/estimations")
 def list_estimations():
     estimations = Estimation.query.order_by(Estimation.estimated_at.desc()).all()
+
+    # ✅ JST補正を正しく適用
+    for est in estimations:
+        if est.estimated_at and isinstance(est.estimated_at, datetime):
+            # UTCとして扱ってからJSTに変換する
+            est.estimated_at = est.estimated_at.replace(tzinfo=timezone.utc).astimezone(JST)
+
     return render_template("estimation_list.html", estimations=estimations)
 
 @bp.route("/vehicles_missing_manufacturer")
