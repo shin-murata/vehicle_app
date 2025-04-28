@@ -7,6 +7,7 @@ from flask import Blueprint, request, jsonify, render_template, redirect, url_fo
 from sqlalchemy import and_, or_  # ← ✅ ここに or_ を追加
 from app import db
 from app.models import Vehicle, Manufacturer, ScrapedInfo, Estimation
+from app.forms import EstimationForm  # ✅ これをroutes.pyの上のほうに追加！
 from scraper.scrape_maker import scrape_manufacturer
 from datetime import date, datetime, timezone, timedelta
 
@@ -270,47 +271,36 @@ def list_vehicles():
 
 @bp.route('/new_estimation', methods=['GET', 'POST'])
 def new_estimation():
-    if request.method == 'POST':
-        maker = request.form.get('maker')
-        car_name = request.form.get('car_name')
-        model_code = request.form.get('model_code')
-        estimate_price = request.form.get('estimate_price')  # ✅ ここで先に取得
+    form = EstimationForm()
 
-        # ✅ 入力チェック
-        if not (maker and car_name and model_code and estimate_price):
-            return "❌ 必須項目が不足しています", 400
+    # GETリクエスト時：URLパラメータから初期値をセット
+    if request.method == 'GET':
+        form.maker.data = request.args.get('maker', '')
+        form.car_name.data = request.args.get('car_name', '')
+        form.model_code.data = request.args.get('model_code', '')
 
-        # ✅ 数値かどうか + マイナスチェック
-        try:
-            estimate_price = int(estimate_price)
-            if estimate_price < 0:
-                return "❌ 金額は0以上で入力してください", 400
-        except ValueError:
-            return "❌ 金額は整数で入力してください", 400
+    if form.validate_on_submit():
+        # ここでさらにestimate_priceがマイナスでないか確認
+        if form.estimate_price.data is not None and form.estimate_price.data < 0:
+            return "❌ 金額は0以上で入力してください", 400
 
-        # ✅ 登録処理
         new_entry = Estimation(
-            maker=maker,
-            car_name=car_name,
-            model_code=model_code,
-            estimate_price=estimate_price
+            maker=form.maker.data,
+            car_name=form.car_name.data,
+            model_code=form.model_code.data,
+            estimate_price=form.estimate_price.data,
+            owner=form.owner.data,
+            sale_price=form.sale_price.data,
+            buyer=form.buyer.data,
+            sold_at=form.sold_at.data,
+            note=form.note.data
         )
         db.session.add(new_entry)
         db.session.commit()
 
         return redirect(url_for('routes.list_vehicles'))
 
-    # GETリクエスト時
-    maker = request.args.get('maker', '')
-    car_name = request.args.get('car_name', '')
-    model_code = request.args.get('model_code', '')
-
-    return render_template(
-        "new_estimation.html",
-        maker=maker,
-        car_name=car_name,
-        model_code=model_code
-    )
+    return render_template("new_estimation.html", form=form)
 
 @bp.route("/estimations")
 def list_estimations():

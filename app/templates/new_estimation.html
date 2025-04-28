@@ -1,61 +1,75 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <h2>📝 新規値付けフォーム</h2>
+<h2>📝 新規値付けフォーム</h2>
 
-  <!-- スピンボタン非表示 -->
-  <style>
-    /* Chrome, Safari, Edge */
-    input::-webkit-outer-spin-button,
-    input::-webkit-inner-spin-button {
-      -webkit-appearance: none;
-      margin: 0;
-    }
+<!-- スピンボタン非表示 -->
+<style>
+  /* Chrome, Safari, Edge */
+  input::-webkit-outer-spin-button,
+  input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  /* Firefox */
+  input[type=number] {
+    -moz-appearance: textfield;
+  }
+  form div {
+    margin-bottom: 1em;
+  }
+  label {
+    display: inline-block;
+    width: 100px;
+  }
+  input {
+    padding: 4px 8px;
+  }
+</style>
 
-    /* Firefox */
-    input[type=number] {
-      -moz-appearance: textfield;
-    }
+<form method="POST" action="{{ url_for('routes.new_estimation') }}">
+  {{ form.hidden_tag() }}
 
-    form div {
-      margin-bottom: 1em;
-    }
+  <div>
+    {{ form.maker.label }} {{ form.maker(size=30) }}
+  </div>
 
-    label {
-      display: inline-block;
-      width: 100px;
-    }
+  <div>
+    {{ form.car_name.label }} {{ form.car_name(size=30) }}
+  </div>
 
-    input {
-      padding: 4px 8px;
-    }
-  </style>
+  <div>
+    {{ form.model_code.label }} {{ form.model_code(size=30) }}
+  </div>
 
-  <form method="POST" action="{{ url_for('routes.new_estimation') }}">
-    <div>
-      <label for="maker">メーカー：</label>
-      <input type="text" name="maker" id="maker" value="{{ maker }}" required>
-    </div>
+  <div>
+    {{ form.estimate_price.label }} {{ form.estimate_price(min=0) }}
+  </div>
 
-    <div>
-      <label for="car_name">車名：</label>
-      <input type="text" name="car_name" id="car_name" value="{{ car_name }}" required>
-    </div>
+  <div>
+    {{ form.owner.label }} {{ form.owner(size=30) }}
+  </div>
 
-    <div>
-      <label for="model_code">認定型式：</label>
-      <input type="text" name="model_code" id="model_code" value="{{ model_code }}" required>
-    </div>
+  <div>
+    {{ form.sale_price.label }} {{ form.sale_price(min=0) }}
+  </div>
 
-    <div>
-      <label for="estimate_price">見積金額：</label>
-      <input type="number" name="estimate_price" id="estimate_price" min="0" required>
-    </div>
+  <div>
+    {{ form.buyer.label }} {{ form.buyer(size=30) }}
+  </div>
 
-    <button type="submit">💾 登録</button>
-    <a href="{{ url_for('routes.list_vehicles') }}">
-      <button type="button">↩ 戻る</button>
-    </a>
-  </form>
+  <div>
+    {{ form.sold_at.label }} {{ form.sold_at() }}
+  </div>
+
+  <div>
+    {{ form.note.label }} {{ form.note(size=30) }}
+  </div>
+
+  <button type="submit">💾 登録</button>
+  <a href="{{ url_for('routes.list_vehicles') }}">
+    <button type="button">↩ 戻る</button>
+  </a>
+</form>
 
 {% endblock %}

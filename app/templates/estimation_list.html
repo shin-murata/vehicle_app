@@ -11,9 +11,15 @@
         <th>車名</th>
         <th>認定型式</th>
         <th>見積金額</th>
-        <th>値付け日</th>
+        <th>持ち主</th>        <!-- ✅ 新しく追加 -->
+        <th>販売価格</th>      <!-- ✅ 新しく追加 -->
+        <th>販売先</th>        <!-- ✅ 新しく追加 -->
+        <th>販売日</th>        <!-- ✅ 新しく追加 -->
+        <th>備考</th>          <!-- ✅ 新しく追加 -->
+        <th>値付け日</th>      <!-- ✅ もともとの項目（維持） -->
       </tr>
     </thead>
+
     <tbody>
       {% for est in estimations %}
       <tr>
@@ -22,7 +28,12 @@
         <td>{{ est.car_name }}</td>
         <td>{{ est.model_code }}</td>
         <td>{{ est.estimate_price }}</td>
-        <td>{{ est.estimated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ est.owner or '' }}</td>       <!-- ✅ 新しく追加 -->
+        <td>{{ est.sale_price or '' }}</td>   <!-- ✅ 新しく追加 -->
+        <td>{{ est.buyer or '' }}</td>        <!-- ✅ 新しく追加 -->
+        <td>{{ est.sold_at.strftime('%Y-%m-%d') if est.sold_at else '' }}</td>  <!-- ✅ 日付フォーマット -->
+        <td>{{ est.note or '' }}</td>         <!-- ✅ 新しく追加 -->
+        <td>{{ est.estimated_at.strftime('%Y-%m-%d %H:%M') if est.estimated_at else '' }}</td>
       </tr>
       {% endfor %}
     </tbody>
