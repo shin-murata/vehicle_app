@@ -17,6 +17,7 @@
         <th>販売日</th>        <!-- ✅ 新しく追加 -->
         <th>備考</th>          <!-- ✅ 新しく追加 -->
         <th>値付け日</th>      <!-- ✅ もともとの項目（維持） -->
+        <th>操作</th>   <!-- ✅ 操作列を追加 -->
       </tr>
     </thead>
 
@@ -34,6 +35,11 @@
         <td>{{ est.sold_at.strftime('%Y-%m-%d') if est.sold_at else '' }}</td>  <!-- ✅ 日付フォーマット -->
         <td>{{ est.note or '' }}</td>         <!-- ✅ 新しく追加 -->
         <td>{{ est.estimated_at.strftime('%Y-%m-%d %H:%M') if est.estimated_at else '' }}</td>
+        <td>
+          <a href="{{ url_for('routes.edit_estimation', id=est.id) }}">
+            <button type="button">✏️ 編集</button>
+          </a>
+        </td> <!-- ✅ 編集ボタン -->
       </tr>
       {% endfor %}
     </tbody>

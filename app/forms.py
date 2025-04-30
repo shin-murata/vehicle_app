@@ -1,9 +1,14 @@
 from flask_wtf import FlaskForm
-from wtforms import StringField, IntegerField, DateField
+from wtforms import SelectField, StringField, IntegerField, DateField
 from wtforms.validators import DataRequired, Optional
 
 class EstimationForm(FlaskForm):
-    maker = StringField('メーカー', validators=[DataRequired()])
+    # ↓ 追加：マスターから選ぶ（初期は空）
+    maker_select = SelectField('メーカー（選択）', choices=[], validate_choice=False)
+
+    # ↓ 追加：手入力欄
+    maker_manual = StringField('メーカー（手入力）')
+    
     car_name = StringField('車名', validators=[DataRequired()])
     model_code = StringField('型式', validators=[DataRequired()])
     estimate_price = IntegerField('見積金額', validators=[DataRequired()])

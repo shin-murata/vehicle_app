@@ -62,3 +62,13 @@ class Estimation(db.Model):
     sold_at = db.Column(db.DateTime)        # 販売日 ← NEW
     note = db.Column(db.String)             # 備考 ← NEW
     estimated_at = db.Column(db.DateTime, default=datetime.utcnow)  # 自動記録
+
+class Client(db.Model):
+    __tablename__ = 'clients'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String, unique=True, nullable=False)
+
+class Buyer(db.Model):
+    __tablename__ = 'buyers'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String, unique=True, nullable=False)

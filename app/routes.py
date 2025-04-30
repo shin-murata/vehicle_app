@@ -3,7 +3,7 @@ import csv
 import re
 import unicodedata
 import pandas as pd
-from flask import Blueprint, request, jsonify, render_template, redirect, url_for
+from flask import Blueprint, request, jsonify, render_template, redirect, url_for, flash
 from sqlalchemy import and_, or_  # ← ✅ ここに or_ を追加
 from app import db
 from app.models import Vehicle, Manufacturer, ScrapedInfo, Estimation
@@ -357,3 +357,39 @@ def edit_manufacturer(vehicle_id):
         scraped=scraped,
         all_manufacturers=all_manufacturers
     )
+
+@bp.route('/edit_estimation/<int:id>', methods=['GET', 'POST'])
+def edit_estimation(id):
+    estimation = Estimation.query.get_or_404(id)
+    form = EstimationForm(obj=estimation)
+
+    # ✅ マスターデータを取得し、choicesに設定
+    manufacturers = Manufacturer.query.order_by(Manufacturer.name).all()
+    form.maker_select.choices = [('', '選択してください')] + [(m.name, m.name) for m in manufacturers]
+
+    if form.validate_on_submit():
+        # ✅ 選択 or 手入力 のいずれかを優先して使用
+        if form.maker_manual.data.strip():
+            selected_maker = form.maker_manual.data.strip()
+        else:
+            selected_maker = form.maker_select.data
+
+        estimation.maker = selected_maker
+
+        # ✅ マスターに存在しなければ追加
+        existing = Manufacturer.query.filter_by(name=selected_maker).first()
+        if not existing:
+            new_manufacturer = Manufacturer(name=selected_maker)
+            db.session.add(new_manufacturer)
+
+        # 他の項目も更新
+        estimation.sale_price = form.sale_price.data
+        estimation.buyer = form.buyer.data
+        estimation.sold_at = form.sold_at.data
+        estimation.note = form.note.data
+
+        db.session.commit()
+        flash("✅ 値付け履歴を更新しました", "success")
+        return redirect(url_for('routes.list_estimations'))
+
+    return render_template("edit_estimation.html", form=form, estimation=estimation)

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>✏️ 値付け履歴編集フォーム</h2>
+
+<!-- 変更できない情報（見出し用） -->
+<div>
+  <strong>メーカー:</strong> {{ estimation.maker }}<br>
+  <strong>車名:</strong> {{ estimation.car_name }}<br>
+  <strong>認定型式:</strong> {{ estimation.model_code }}<br>
+  <strong>見積金額:</strong> {{ estimation.estimate_price }}<br>
+  <strong>持ち主:</strong> {{ estimation.owner or '' }}<br>
+  <strong>値付け日:</strong> {{ estimation.estimated_at.strftime('%Y-%m-%d %H:%M') if estimation.estimated_at else '' }}
+</div>
+
+<hr>
+
+<!-- 変更できる部分（フォーム） -->
+<form method="POST" action="{{ url_for('routes.edit_estimation', id=estimation.id) }}">
+  {{ form.hidden_tag() }}
+
+  <div>
+    {{ form.sale_price.label }} {{ form.sale_price(min=0) }}
+  </div>
+
+  <div>
+    {{ form.buyer.label }} {{ form.buyer(size=30) }}
+  </div>
+
+  <div>
+    {{ form.sold_at.label }} {{ form.sold_at() }}
+  </div>
+
+  <div>
+    {{ form.note.label }} {{ form.note(size=50) }}
+  </div>
+
+  <button type="submit">💾 保存</button>
+  <a href="{{ url_for('routes.list_estimations') }}">
+    <button type="button">↩ 戻る</button>
+  </a>
+</form>
+{% endblock %}
