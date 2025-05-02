@@ -1,18 +1,31 @@
-import time
+# ---------- 標準ライブラリ ----------
 import csv
+import os
 import re
+import time
 import unicodedata
-import pandas as pd
-from flask import Blueprint, request, jsonify, render_template, redirect, url_for, flash
-from sqlalchemy import and_, or_  # ← ✅ ここに or_ を追加
-from app import db
-from app.models import Vehicle, Manufacturer, ScrapedInfo, Estimation
-from app.forms import EstimationForm  # ✅ これをroutes.pyの上のほうに追加！
-from scraper.scrape_maker import scrape_manufacturer
 from datetime import date, datetime, timezone, timedelta
+
+# ---------- サードパーティ ----------
+import pandas as pd
+from flask import (
+    Blueprint, request, jsonify, render_template,
+    redirect, url_for, flash
+)
+from sqlalchemy import and_, or_
+
+# ---------- アプリケーション ----------
+from app import db
+from app.models import (
+    Vehicle, Manufacturer, ScrapedInfo,
+    Estimation, Buyer, Client
+)
+from app.forms import EstimationForm
+from scraper.scrape_maker import scrape_manufacturer
 
 # ✅ 日本時間タイムゾーンを定義
 JST = timezone(timedelta(hours=9))
+
 
 bp = Blueprint('routes', __name__)
 
@@ -203,8 +216,6 @@ def import_csv():
         added += 1
 
     # ✅ CSVとして失敗IDを出力
-    import os  # すでに冒頭にある場合は不要
-    
     fail_filename = None
 
     # ✅ CSVとして失敗IDを出力（static フォルダに保存）
@@ -234,8 +245,10 @@ def import_csv():
 @bp.route("/vehicles", methods=["GET"])
 def list_vehicles():
     keyword = request.args.get("keyword", "").strip()
-    sort_key = request.args.get("sort", "id")         # デフォルトは id
-    sort_order = request.args.get("order", "desc")    # デフォルトは降順
+
+    # ★ デフォルトキーを internal_code に変更
+    sort_key    = request.args.get("sort", "internal_code")
+    sort_order  = request.args.get("order", "desc")        # 降順固定で OK
 
     # ✅ 対応可能なソートキー
     sort_fields = {
@@ -258,14 +271,14 @@ def list_vehicles():
             )
         )
 
-    # ⬆️ 並び替え処理
+    # ✅ 並び替え指定があれば適用、なければ internal_code の降順で固定
     if sort_key in sort_fields:
         sort_column = sort_fields[sort_key]
-        if sort_order == "asc":
-            query = query.order_by(sort_column.asc())
-        else:
-            query = query.order_by(sort_column.desc())
-
+        query = query.order_by(sort_column.asc() if sort_order == "asc" else sort_column.desc())
+    else:
+        # 並び替えが明示されていないとき（初期表示や検索時）
+        query = query.order_by(Vehicle.internal_code.desc())
+    
     vehicles = query.all()
     return render_template("vehicle_list.html", vehicles=vehicles, keyword=keyword, sort_key=sort_key, sort_order=sort_order)
 
@@ -273,31 +286,57 @@ def list_vehicles():
 def new_estimation():
     form = EstimationForm()
 
-    # GETリクエスト時：URLパラメータから初期値をセット
+    # ✅ マスター選択肢の読み込み
+    manufacturers = Manufacturer.query.order_by(Manufacturer.name).all()
+    form.maker_select.choices = [('', '選択してください')] + [(m.name, m.name) for m in manufacturers]
+
+    buyers = Buyer.query.order_by(Buyer.name).all()
+    form.buyer_select.choices = [('', '選択してください')] + [(b.name, b.name) for b in buyers]
+
+    clients = Client.query.order_by(Client.name).all()
+    form.client_select.choices = [('', '選択してください')] + [(c.name, c.name) for c in clients]
+
+    # ✅ GET時：URLパラメータで初期値セット
     if request.method == 'GET':
-        form.maker.data = request.args.get('maker', '')
+        form.maker_manual.data = request.args.get('maker', '')
         form.car_name.data = request.args.get('car_name', '')
         form.model_code.data = request.args.get('model_code', '')
 
+    # ✅ POST時：バリデーションと保存処理
     if form.validate_on_submit():
-        # ここでさらにestimate_priceがマイナスでないか確認
+        # ✅ 金額がマイナスでないかチェック（元の処理）
         if form.estimate_price.data is not None and form.estimate_price.data < 0:
             return "❌ 金額は0以上で入力してください", 400
 
+        # ✅ 各項目は「手入力」＞「選択」を優先して採用
+        maker = form.maker_manual.data.strip() or form.maker_select.data
+        buyer = form.buyer_manual.data.strip() or form.buyer_select.data
+        client = form.client_manual.data.strip() or form.client_select.data
+
+        # ✅ 各マスターテーブルに未登録なら追加
+        if maker and not Manufacturer.query.filter_by(name=maker).first():
+            db.session.add(Manufacturer(name=maker))
+        if buyer and not Buyer.query.filter_by(name=buyer).first():
+            db.session.add(Buyer(name=buyer))
+        if client and not Client.query.filter_by(name=client).first():
+            db.session.add(Client(name=client))
+
+        # ✅ Estimation へ登録
         new_entry = Estimation(
-            maker=form.maker.data,
+            maker=maker,
             car_name=form.car_name.data,
             model_code=form.model_code.data,
             estimate_price=form.estimate_price.data,
-            owner=form.owner.data,
+            owner=client,  # ←ここにclient名を保存
             sale_price=form.sale_price.data,
-            buyer=form.buyer.data,
+            buyer=buyer,
             sold_at=form.sold_at.data,
             note=form.note.data
         )
         db.session.add(new_entry)
         db.session.commit()
 
+        flash("✅ 値付けを登録しました", "success")
         return redirect(url_for('routes.list_vehicles'))
 
     return render_template("new_estimation.html", form=form)
@@ -360,33 +399,49 @@ def edit_manufacturer(vehicle_id):
 
 @bp.route('/edit_estimation/<int:id>', methods=['GET', 'POST'])
 def edit_estimation(id):
+    # 対象の Estimation レコードを取得（なければ 404 エラー）
     estimation = Estimation.query.get_or_404(id)
+
+    # フォームを作成し、初期値として estimation のデータを埋め込む
     form = EstimationForm(obj=estimation)
 
-    # ✅ マスターデータを取得し、choicesに設定
+    # ✅ choices を設定：マスターデータをドロップダウンに反映
     manufacturers = Manufacturer.query.order_by(Manufacturer.name).all()
     form.maker_select.choices = [('', '選択してください')] + [(m.name, m.name) for m in manufacturers]
 
+    buyers = Buyer.query.order_by(Buyer.name).all()
+    form.buyer_select.choices = [('', '選択してください')] + [(b.name, b.name) for b in buyers]
+
+    # ✅ フォーム送信後（POST）の処理
     if form.validate_on_submit():
-        # ✅ 選択 or 手入力 のいずれかを優先して使用
-        if form.maker_manual.data.strip():
-            selected_maker = form.maker_manual.data.strip()
+        # maker_manual（手入力欄）が空でないならそちらを優先
+        maker_manual = form.maker_manual.data or ""
+        if maker_manual.strip():
+            selected_maker = maker_manual.strip()
         else:
             selected_maker = form.maker_select.data
 
+        # buyer_manual（手入力欄）が空でないならそちらを優先
+        buyer_manual = form.buyer_manual.data or ""
+        if buyer_manual.strip():
+            selected_buyer = buyer_manual.strip()
+        else:
+            selected_buyer = form.buyer_select.data
+
+        # Estimation レコードを更新
         estimation.maker = selected_maker
-
-        # ✅ マスターに存在しなければ追加
-        existing = Manufacturer.query.filter_by(name=selected_maker).first()
-        if not existing:
-            new_manufacturer = Manufacturer(name=selected_maker)
-            db.session.add(new_manufacturer)
-
-        # 他の項目も更新
+        estimation.buyer = selected_buyer
         estimation.sale_price = form.sale_price.data
-        estimation.buyer = form.buyer.data
         estimation.sold_at = form.sold_at.data
         estimation.note = form.note.data
+
+        # 未登録のメーカーが選ばれたらマスターに追加
+        if selected_maker and not Manufacturer.query.filter_by(name=selected_maker).first():
+            db.session.add(Manufacturer(name=selected_maker))
+
+        # 未登録の販売先が選ばれたらマスターに追加
+        if selected_buyer and not Buyer.query.filter_by(name=selected_buyer).first():
+            db.session.add(Buyer(name=selected_buyer))
 
         db.session.commit()
         flash("✅ 値付け履歴を更新しました", "success")

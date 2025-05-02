@@ -3,15 +3,13 @@
 {% block content %}
 <h2>📝 新規値付けフォーム</h2>
 
-<!-- スピンボタン非表示 -->
 <style>
-  /* Chrome, Safari, Edge */
+  /* スピンボタン非表示 */
   input::-webkit-outer-spin-button,
   input::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
   }
-  /* Firefox */
   input[type=number] {
     -moz-appearance: textfield;
   }
@@ -20,9 +18,9 @@
   }
   label {
     display: inline-block;
-    width: 100px;
+    width: 120px;
   }
-  input {
+  input, select {
     padding: 4px 8px;
   }
 </style>
@@ -30,8 +28,12 @@
 <form method="POST" action="{{ url_for('routes.new_estimation') }}">
   {{ form.hidden_tag() }}
 
+  <!-- ✅ メーカー：選択＋手入力 -->
   <div>
-    {{ form.maker.label }} {{ form.maker(size=30) }}
+    {{ form.maker_select.label }} {{ form.maker_select() }}
+  </div>
+  <div>
+    {{ form.maker_manual.label }} {{ form.maker_manual(size=30) }}
   </div>
 
   <div>
@@ -46,16 +48,23 @@
     {{ form.estimate_price.label }} {{ form.estimate_price(min=0) }}
   </div>
 
+ <!-- ✅ 依頼元：選択 or 手入力 -->
   <div>
-    {{ form.owner.label }} {{ form.owner(size=30) }}
+    {{ form.client_select.label }} {{ form.client_select() }}
   </div>
-
+  <div>
+    {{ form.client_manual.label }} {{ form.client_manual(size=30) }}
+  </div>
   <div>
     {{ form.sale_price.label }} {{ form.sale_price(min=0) }}
   </div>
 
+  <!-- ✅ 販売先：選択＋手入力 -->
   <div>
-    {{ form.buyer.label }} {{ form.buyer(size=30) }}
+    {{ form.buyer_select.label }} {{ form.buyer_select() }}
+  </div>
+  <div>
+    {{ form.buyer_manual.label }} {{ form.buyer_manual(size=30) }}
   </div>
 
   <div>
@@ -71,5 +80,4 @@
     <button type="button">↩ 戻る</button>
   </a>
 </form>
-
 {% endblock %}

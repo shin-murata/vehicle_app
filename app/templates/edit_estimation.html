@@ -23,8 +23,12 @@
     {{ form.sale_price.label }} {{ form.sale_price(min=0) }}
   </div>
 
+  <!-- ✅ 販売先：選択＋手入力 -->
   <div>
-    {{ form.buyer.label }} {{ form.buyer(size=30) }}
+    {{ form.buyer_select.label }} {{ form.buyer_select() }}
+  </div>
+  <div>
+    {{ form.buyer_manual.label }} {{ form.buyer_manual(size=30) }}
   </div>
 
   <div>
