@@ -22,6 +22,9 @@ class Vehicle(db.Model):
     manufacturer_id = db.Column(db.Integer, db.ForeignKey('manufacturers.id'))
     manufacturer = db.relationship('Manufacturer', back_populates='vehicles')
 
+    model_code_id = db.Column(db.Integer, db.ForeignKey('model_codes.id'))  # 外部キー追加
+    model_code_obj = db.relationship('ModelCode', back_populates='vehicles')  # 関連付け
+
     scraped_info = db.relationship('ScrapedInfo', back_populates='vehicle', cascade='all, delete-orphan')
 
 # 🏭 Manufacturer master table
@@ -63,6 +66,9 @@ class Estimation(db.Model):
     note = db.Column(db.String)             # 備考 ← NEW
     estimated_at = db.Column(db.DateTime, default=datetime.utcnow)  # 自動記録
 
+    model_code_id = db.Column(db.Integer, db.ForeignKey('model_codes.id'))  # 外部キー追加
+    model_code_obj = db.relationship('ModelCode', back_populates='vehicles')  # 関連付け
+
 class Client(db.Model):
     __tablename__ = 'clients'
     id = db.Column(db.Integer, primary_key=True)
@@ -72,3 +78,13 @@ class Buyer(db.Model):
     __tablename__ = 'buyers'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String, unique=True, nullable=False)
+
+# 認定型式マスターテーブル
+class ModelCode(db.Model):
+    __tablename__ = 'model_codes'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String, unique=True, nullable=False)  # 型式（例：MH21Sなど）
+
+    # Vehicleとのリレーション（あとで追加）
+    vehicles = db.relationship('Vehicle', back_populates='model_code_obj')
