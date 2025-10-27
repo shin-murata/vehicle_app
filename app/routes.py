@@ -4,6 +4,7 @@ import os
 import re
 import time
 import unicodedata
+import gc  # ← 追加
 from datetime import date, datetime, timezone, timedelta
 
 # ---------- サードパーティ ----------
@@ -70,8 +71,15 @@ def import_csv():
 
         processed += 1
         if processed > 0 and processed % batch_size == 0:
-            print(f"⏸ {batch_size}件処理ごとに休憩中...")
-            time.sleep(10)
+            print(f"⏸ {batch_size}件処理ごとにコミット＆メモリ解放中...")
+            try:
+                db.session.commit()        # DB に書き込み確定
+                db.session.expunge_all()   # セッションからオブジェクトを外す（メモリ軽減）
+                gc.collect()               # Pythonのガベージコレクションを促す
+            except Exception as e:
+                print("⚠️ バッチコミット中にエラー:", e)
+                db.session.rollback()
+            time.sleep(sleep_seconds)
 
         vehicle = Vehicle.query.filter_by(intake_number=row.入庫番号).first()
 
@@ -214,6 +222,18 @@ def import_csv():
             print(f"🧾 スクレイピング情報追加: {row.自社管理番号}")
 
         added += 1
+
+        # ループ終了（ここに残りのコミットを入れる）
+    try:
+        # バッチでコミットしきれなかった残りを確実に確定
+        db.session.commit()
+        # セッションからオブジェクトを外してメモリを解放
+        db.session.expunge_all()
+        # Python の GC を明示的に呼ぶ
+        gc.collect()
+    except Exception as e:
+        print("⚠️ 最終コミットでエラー:", e)
+        db.session.rollback()
 
     # ✅ CSVとして失敗IDを出力
     fail_filename = None
