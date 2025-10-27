@@ -67,7 +67,7 @@ class Estimation(db.Model):
     estimated_at = db.Column(db.DateTime, default=datetime.utcnow)  # 自動記録
 
     model_code_id = db.Column(db.Integer, db.ForeignKey('model_codes.id'))  # 外部キー追加
-    model_code_obj = db.relationship('ModelCode', back_populates='vehicles')  # 関連付け
+    model_code_obj = db.relationship('ModelCode', back_populates='estimations')  # ← 修正
 
 class Client(db.Model):
     __tablename__ = 'clients'
@@ -88,3 +88,4 @@ class ModelCode(db.Model):
 
     # Vehicleとのリレーション（あとで追加）
     vehicles = db.relationship('Vehicle', back_populates='model_code_obj')
+    estimations = db.relationship('Estimation', back_populates='model_code_obj')  # ← 追加
