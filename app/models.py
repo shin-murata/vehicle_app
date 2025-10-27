@@ -22,8 +22,9 @@ class Vehicle(db.Model):
     manufacturer_id = db.Column(db.Integer, db.ForeignKey('manufacturers.id'))
     manufacturer = db.relationship('Manufacturer', back_populates='vehicles')
 
-    model_code_id = db.Column(db.Integer, db.ForeignKey('model_codes.id'))  # 外部キー追加
-    model_code_obj = db.relationship('ModelCode', back_populates='vehicles')  # 関連付け
+    model_code_id = db.Column(db.Integer, db.ForeignKey('model_codes.id'))
+    # Vehicle <-> ModelCode のペア
+    model_code_obj = db.relationship('ModelCode', back_populates='vehicles')
 
     scraped_info = db.relationship('ScrapedInfo', back_populates='vehicle', cascade='all, delete-orphan')
 
@@ -45,47 +46,52 @@ class ScrapedInfo(db.Model):
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'))
     manufacturer_name = db.Column(db.String)     # メーカー
     model_spec = db.Column(db.String)            # 型式別スペック
-    retrieved_date = db.Column(db.DateTime)          # 取得日
+    retrieved_date = db.Column(db.DateTime)      # 取得日
     source_url = db.Column(db.String)            # 取得元URL
 
     vehicle = db.relationship('Vehicle', back_populates='scraped_info')
+
 
 # 新しいモデル
 class Estimation(db.Model):
     __tablename__ = 'estimations'
 
     id = db.Column(db.Integer, primary_key=True)
-    maker = db.Column(db.String)          # メーカー（手入力も可）
-    car_name = db.Column(db.String)        # 車名
-    model_code = db.Column(db.String)      # 型式
-    owner = db.Column(db.String)           # 持ち主（値付け先）← NEW
-    estimate_price = db.Column(db.Integer) # 査定価格（見積もり金額）
-    sale_price = db.Column(db.Integer)     # 販売価格 ← NEW
-    buyer = db.Column(db.String)           # 販売先 ← NEW
-    sold_at = db.Column(db.DateTime)        # 販売日 ← NEW
-    note = db.Column(db.String)             # 備考 ← NEW
-    estimated_at = db.Column(db.DateTime, default=datetime.utcnow)  # 自動記録
+    maker = db.Column(db.String)
+    car_name = db.Column(db.String)
+    model_code = db.Column(db.String)
+    owner = db.Column(db.String)
+    estimate_price = db.Column(db.Integer)
+    sale_price = db.Column(db.Integer)
+    buyer = db.Column(db.String)
+    sold_at = db.Column(db.DateTime)
+    note = db.Column(db.String)
+    estimated_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    model_code_id = db.Column(db.Integer, db.ForeignKey('model_codes.id'))  # 外部キー追加
-    model_code_obj = db.relationship('ModelCode', back_populates='estimations')  # ← 修正
+    model_code_id = db.Column(db.Integer, db.ForeignKey('model_codes.id'))
+    # Estimation <-> ModelCode のペア
+    model_code_obj = db.relationship('ModelCode', back_populates='estimations')
+
 
 class Client(db.Model):
     __tablename__ = 'clients'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String, unique=True, nullable=False)
 
+
 class Buyer(db.Model):
     __tablename__ = 'buyers'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String, unique=True, nullable=False)
+
 
 # 認定型式マスターテーブル
 class ModelCode(db.Model):
     __tablename__ = 'model_codes'
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String, unique=True, nullable=False)  # 型式（例：MH21Sなど）
+    name = db.Column(db.String, unique=True, nullable=False)
 
-    # Vehicleとのリレーション（あとで追加）
+    # ModelCode 側のリレーションペア（それぞれ対応する back_populates 名と一致）
     vehicles = db.relationship('Vehicle', back_populates='model_code_obj')
-    estimations = db.relationship('Estimation', back_populates='model_code_obj')  # ← 追加
+    estimations = db.relationship('Estimation', back_populates='model_code_obj')
