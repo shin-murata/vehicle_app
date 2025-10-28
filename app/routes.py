@@ -53,6 +53,9 @@ def import_csv():
         return text
 
     df = df.applymap(to_zenkaku)
+
+    # ★ CSV内の重複入庫番号をスキップするための集合
+    seen = set()
     
     added = 0
     fail_count = 0
@@ -64,6 +67,14 @@ def import_csv():
 
     for row in df.itertuples():
         print(f"\n🚗 処理中: {row.自社管理番号}")
+        key = None if pd.isna(row.入庫番号) else int(row.入庫番号)
+        if key is None:
+            print("⚠️ 入庫番号が無いためスキップ")
+            continue
+        if key in seen:
+            print(f"⏭ CSV内重複のためスキップ: {key}")
+            continue
+        seen.add(key)
         # ✅ 型式がNaNや空文字の場合はスキップ
         if pd.isna(row.認定型式) or str(row.認定型式).strip() == "":
             print(f"⚠️ 型式が空またはNaNのためスキップ: {row.自社管理番号}")
@@ -83,6 +94,17 @@ def import_csv():
 
         vehicle = Vehicle.query.filter_by(intake_number=row.入庫番号).first()
 
+                # ★ 既存のVehicleがある場合の早期判定（確定済みなら丸ごとスキップ）
+        if vehicle:
+            scraped = ScrapedInfo.query.filter_by(vehicle_id=vehicle.id).first()
+
+            # 「メーカー確定済み」= Vehicle.manufacturer_id がある
+            #   もしくは scraped.manufacturer_name が「仮/不明」以外（=確定）
+            if vehicle.manufacturer_id or (scraped and scraped.manufacturer_name not in ["仮メーカー", "不明"]):
+                print(f"⏭ 既存 & メーカー確定済みのためスキップ: {row.入庫番号}")
+                continue
+            # ここに来るのは「未確定（仮/不明）」だけ → 続行して“再トライのスクレイピング”へ進む
+        
         if not vehicle:
             vehicle = Vehicle(
                 intake_number=row.入庫番号,
