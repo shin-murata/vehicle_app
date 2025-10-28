@@ -13,3 +13,5 @@ services:
         value: postgresql://vehicle_db_590a_user:GaI49vu5tRz4fhVeevaUbfSpx6Ce3GJD@dpg-d063nuali9vc73dvmm00-a.singapore-postgres.render.com/vehicle_db_590a
       - key: ENVIRONMENT
         value: prod
+      - key: GUNICORN_CMD_ARGS
+        value: "--timeout 180 --graceful-timeout 30 --workers 1"
