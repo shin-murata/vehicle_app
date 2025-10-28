@@ -14,4 +14,4 @@ services:
       - key: ENVIRONMENT
         value: prod
       - key: GUNICORN_CMD_ARGS
-        value: "--timeout 180 --graceful-timeout 30 --workers 1"
+        value: "--timeout 300 --graceful-timeout 60 --workers 1"

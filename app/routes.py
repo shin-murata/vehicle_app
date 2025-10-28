@@ -52,7 +52,7 @@ def import_csv():
 
     # ---- ここから「チャンク読み込み」設定 ----
     file.stream.seek(0)   # 念のため先頭へ戻す
-    CHUNK = 200           # 200行ずつ読む（Freeプランなら100〜300が安全）
+    CHUNK = 50           # 200行ずつ読む（Freeプランなら100〜300が安全）
 
     # CSV内の重複入庫番号（チャンクをまたいでも効くように、外側で保持）
     seen = set()
@@ -76,7 +76,7 @@ def import_csv():
     fail_ids = []
     processed = 0
     
-    batch_size = 50
+    batch_size = 20
     sleep_seconds = 4  # ✅ 安全性向上のため3〜5秒に調整
 
     # ★ チャンクごとに読み込んで処理
@@ -268,9 +268,12 @@ def import_csv():
         try:
             # バッチでコミットしきれなかった残りを確実に確定
             db.session.commit()
+            db.session.flush()
             # セッションからオブジェクトを外してメモリを解放
             db.session.expunge_all()
             # Python の GC を明示的に呼ぶ
+            gc.collect()
+            del df                            # ← 追加
             gc.collect()
         except Exception as e:
             print("⚠️ 最終コミットでエラー:", e)
