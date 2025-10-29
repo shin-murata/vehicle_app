@@ -34,7 +34,7 @@ bp = Blueprint('routes', __name__)
 def index():
     return render_template("index.html")
 
-@bp.route('/import_csv', methods=['GET', 'POST'])  # ← GETを追加！
+@bp.route('/import_csv', methods=['GET', 'POST'])
 def import_csv():
     if request.method == 'GET':
         return render_template("import_csv.html")
@@ -44,259 +44,289 @@ def import_csv():
     if not file:
         return jsonify({'error': 'CSVファイルが必要です'}), 400
 
-    # ✅ 半角カタカナを全角に統一（従来の関数は残します）
+    # ==== ここから：軽量化 & 再開準備 ===================================
+    # ✅ 文字正規化（行処理の中だけで使う：applymapは使わない）
     def to_zenkaku(text):
         if isinstance(text, str):
             return unicodedata.normalize('NFKC', text)
         return text
 
-    # ---- ここから「チャンク読み込み」設定 ----
-    file.stream.seek(0)   # 念のため先頭へ戻す
-    CHUNK = 50           # 200行ずつ読む（Freeプランなら100〜300が安全）
+    # ✅ 読み込む列だけに限定（ロジックは同じ。入庫番号等の列名はCSVどおり）
+    USECOLS = [
+        "入庫番号", "ステータス", "状態", "引取完了日", "依頼元",
+        "車名", "認定型式", "年式", "車台番号", "車色",
+        "見積金額", "自社管理番号"
+    ]
 
-    # CSV内の重複入庫番号（チャンクをまたいでも効くように、外側で保持）
-    seen = set()
+    # ✅ チャンク/バッチ設定（メモリ削減）
+    CHUNK = 50
+    batch_size = 20
+    sleep_seconds = 4
 
-    def normalize_df(df):
-        return df.applymap(to_zenkaku)
+    # ✅ 再開（resume）機能
+    RESUME_LOG_PATH = os.path.join("static", "processed_intake_numbers.txt")
+    resume = (request.args.get("resume", "").lower() == "true")
 
-    # pandas のチャンクイテレータ（dtype=str で型推論による膨張を抑制）
+    # 既存の処理済み入庫番号を読み込み
+    processed_ids_from_log = set()
+    if resume and os.path.exists(RESUME_LOG_PATH):
+        with open(RESUME_LOG_PATH, "r") as f:
+            for line in f:
+                s = line.strip()
+                if s:
+                    try:
+                        processed_ids_from_log.add(int(s))
+                    except ValueError:
+                        pass
+        print(f"♻️ resume: ログから {len(processed_ids_from_log)} 件をスキップ対象として読み込み")
+    # ===============================================================
+
+    # pandas のチャンクイテレータ（dtype=str で型膨張抑制）
+    file.stream.seek(0)
     chunk_iter = pd.read_csv(
         file.stream,
         encoding='cp932',
         dtype=str,
-        chunksize=CHUNK
+        chunksize=CHUNK,
+        usecols=USECOLS     # ✅ 追加：必要列だけ読む
     )
-    # ---- ここまでチャンク読み込み設定 ----
 
-    
     added = 0
-    fail_count = 0
-    success_count = 0
     fail_ids = []
+    success_count = 0
     processed = 0
-    
-    batch_size = 20
-    sleep_seconds = 4  # ✅ 安全性向上のため3〜5秒に調整
 
-    # ★ チャンクごとに読み込んで処理
+    # CSV内重複スキップ（チャンク跨ぎ対応）
+    seen_in_csv = set()
+
+    # ログ追記用（一括で追記してI/Oを減らす）
+    to_log_after_commit: list[int] = []
+
+    def flush_resume_log(ids: list[int]):
+        if not ids:
+            return
+        os.makedirs(os.path.dirname(RESUME_LOG_PATH), exist_ok=True)
+        with open(RESUME_LOG_PATH, "a") as f:
+            for v in ids:
+                f.write(f"{v}\n")
+        ids.clear()
+
     for df in chunk_iter:
-        df = normalize_df(df)
+        try:
+            # ---- 行ループ（ここでだけ正規化して使う）----
+            for row in df.itertuples():
+                # 取り出し＆軽量正規化（使うものだけ）
+                raw_intake = getattr(row, "入庫番号", None)
+                raw_code   = getattr(row, "自社管理番号", None)
 
-        # ここから従来の「行ループ」本体
-        for row in df.itertuples():
-            print(f"\n🚗 処理中: {row.自社管理番号}")
-            key = None if pd.isna(row.入庫番号) else int(row.入庫番号)
-            if key is None:
-                print("⚠️ 入庫番号が無いためスキップ")
-                continue
-            if key in seen:
-                print(f"⏭ CSV内重複のためスキップ: {key}")
-                continue
-            seen.add(key)
-            # ✅ 型式がNaNや空文字の場合はスキップ
-            if pd.isna(row.認定型式) or str(row.認定型式).strip() == "":
-                print(f"⚠️ 型式が空またはNaNのためスキップ: {row.自社管理番号}")
-                continue
+                # 入庫番号キーの決定
+                key = None
+                if raw_intake is not None and str(raw_intake).strip() != "" and not pd.isna(raw_intake):
+                    try:
+                        key = int(str(raw_intake).strip())
+                    except ValueError:
+                        key = None
 
-            processed += 1
-            if processed > 0 and processed % batch_size == 0:
-                print(f"⏸ {batch_size}件処理ごとにコミット＆メモリ解放中...")
-                try:
-                    db.session.commit()        # DB に書き込み確定
-                    db.session.expunge_all()   # セッションからオブジェクトを外す（メモリ軽減）
-                    gc.collect()               # Pythonのガベージコレクションを促す
-                except Exception as e:
-                    print("⚠️ バッチコミット中にエラー:", e)
-                    db.session.rollback()
-                time.sleep(sleep_seconds)
+                print(f"\n🚗 処理中: {raw_code}")
 
-            vehicle = Vehicle.query.filter_by(intake_number=row.入庫番号).first()
-
-                    # ★ 既存のVehicleがある場合の早期判定（確定済みなら丸ごとスキップ）
-            if vehicle:
-                scraped = ScrapedInfo.query.filter_by(vehicle_id=vehicle.id).first()
-
-                # 「メーカー確定済み」= Vehicle.manufacturer_id がある
-                #   もしくは scraped.manufacturer_name が「仮/不明」以外（=確定）
-                if vehicle.manufacturer_id or (scraped and scraped.manufacturer_name not in ["仮メーカー", "不明"]):
-                    print(f"⏭ 既存 & メーカー確定済みのためスキップ: {row.入庫番号}")
+                if key is None:
+                    print("⚠️ 入庫番号が無いためスキップ")
                     continue
-                # ここに来るのは「未確定（仮/不明）」だけ → 続行して“再トライのスクレイピング”へ進む
-            
-            if not vehicle:
-                vehicle = Vehicle(
-                    intake_number=row.入庫番号,
-                    status=row.ステータス,
-                    condition=row.状態,
-                    pickup_date=row.引取完了日 if not pd.isna(row.引取完了日) else None,
-                    client=row.依頼元,
-                    car_name=row.車名,
-                    model_code=row.認定型式,
-                    year=row.年式,
-                    vin=row.車台番号,
-                    color=row.車色,
-                    estimate_price=row.見積金額,
-                    internal_code=row.自社管理番号
-                )
-                db.session.add(vehicle)
-                print(f"📝 Vehicle 追加: {row.入庫番号}")
-            else:
-                print(f"📦 Vehicle 既に存在: {row.入庫番号}")
-                    # ✅ 既存データが None のカラムを CSV の値で補完
-                if vehicle.intake_number is None and not pd.isna(row.入庫番号):
-                    vehicle.intake_number = row.入庫番号
 
-                if vehicle.status is None and not pd.isna(row.ステータス):
-                    vehicle.status = row.ステータス
+                # 再開スキップ（既に処理済み）
+                if resume and key in processed_ids_from_log:
+                    print(f"⏭ resume: 既処理のためスキップ: {key}")
+                    continue
 
-                if vehicle.condition is None and not pd.isna(row.状態):
-                    vehicle.condition = row.状態
+                # 同一CSV内重複スキップ
+                if key in seen_in_csv:
+                    print(f"⏭ CSV内重複のためスキップ: {key}")
+                    continue
+                seen_in_csv.add(key)
 
-                if vehicle.pickup_date is None and not pd.isna(row.引取完了日):
-                    vehicle.pickup_date = row.引取完了日
+                # 型式チェック（必要時だけ正規化）
+                raw_model = getattr(row, "認定型式", None)
+                if (raw_model is None) or pd.isna(raw_model) or str(raw_model).strip() == "":
+                    print(f"⚠️ 型式が空またはNaNのためスキップ: {raw_code}")
+                    continue
 
-                if vehicle.client is None and not pd.isna(row.依頼元):
-                    vehicle.client = row.依頼元
+                # バッチ境目でコミット＆メモリ解放
+                processed += 1
+                if processed > 0 and processed % batch_size == 0:
+                    print(f"⏸ {batch_size}件処理ごとにコミット＆メモリ解放中...")
+                    try:
+                        db.session.commit()
+                        db.session.expunge_all()
+                        gc.collect()
+                        flush_resume_log(to_log_after_commit)  # ✅ ログ追記
+                    except Exception as e:
+                        print("⚠️ バッチコミット中にエラー:", e)
+                        db.session.rollback()
+                    time.sleep(sleep_seconds)
 
-                if vehicle.car_name is None and not pd.isna(row.車名):
-                    vehicle.car_name = row.車名
+                # 既存車両の存在チェック
+                vehicle = Vehicle.query.filter_by(intake_number=key).first()
 
-                if vehicle.model_code is None and not pd.isna(row.認定型式):
-                    vehicle.model_code = row.認定型式
+                # 既存＆確定済みは早期スキップ
+                if vehicle:
+                    scraped = ScrapedInfo.query.filter_by(vehicle_id=vehicle.id).first()
+                    if vehicle.manufacturer_id or (scraped and scraped.manufacturer_name not in ["仮メーカー", "不明"]):
+                        print(f"⏭ 既存 & メーカー確定済みのためスキップ: {key}")
+                        to_log_after_commit.append(key)  # ✅ スキップでも「処理済み」として記録
+                        continue
 
-                if vehicle.year is None and not pd.isna(row.年式):
-                    vehicle.year = row.年式
+                # ---- Vehicle の新規作成 or 補完 ----
+                def nz_str(v):
+                    return None if (v is None or pd.isna(v) or str(v).strip() == "") else to_zenkaku(str(v))
 
-                if vehicle.vin is None and not pd.isna(row.車台番号):
-                    vehicle.vin = row.車台番号
-
-                if vehicle.color is None and not pd.isna(row.車色):
-                    vehicle.color = row.車色
-
-                if vehicle.estimate_price is None and not pd.isna(row.見積金額):
-                    vehicle.estimate_price = row.見積金額
-
-                # ✅ 変更があった場合に明示的に再追加
-                db.session.add(vehicle)
-
-            scraped = ScrapedInfo.query.filter_by(vehicle_id=vehicle.id).first()
-
-            # ✅ 「すでに仮メーカー or 不明」が登録されていればスキップ
-            if scraped and scraped.manufacturer_name in ["仮メーカー", "不明"]:
-                print(f"⏭ 仮メーカー or 不明は再スクレイピング不要: {row.自社管理番号}")
-                continue
-
-
-            # ✅ 正規化＋接頭辞除去でキーワードを生成
-            car_name_normalized = unicodedata.normalize("NFKC", str(row.車名)).replace("・", "")
-            model_code_normalized = unicodedata.normalize("NFKC", str(row.認定型式))
-            model_code_cleaned = re.sub(r"^[A-Z]+-", "", model_code_normalized)
-            keyword = f"{car_name_normalized} {model_code_cleaned}"
-            print(f"🔍 キーワード生成: {keyword}")
-
-            # ✅ 過去に同じキーワードで成功していないか履歴チェック
-            existing_info = ScrapedInfo.query.filter(
-                ScrapedInfo.manufacturer_name.notin_(["不明", "仮メーカー"]),
-                ScrapedInfo.vehicle.has(
-                    and_(
-                        Vehicle.car_name == row.車名,
-                        Vehicle.model_code == row.認定型式
+                if not vehicle:
+                    vehicle = Vehicle(
+                        intake_number=key,
+                        status=nz_str(getattr(row, "ステータス", None)),
+                        condition=nz_str(getattr(row, "状態", None)),
+                        pickup_date=nz_str(getattr(row, "引取完了日", None)),
+                        client=nz_str(getattr(row, "依頼元", None)),
+                        car_name=nz_str(getattr(row, "車名", None)),
+                        model_code=nz_str(raw_model),
+                        year=nz_str(getattr(row, "年式", None)),
+                        vin=nz_str(getattr(row, "車台番号", None)),
+                        color=nz_str(getattr(row, "車色", None)),
+                        estimate_price=nz_str(getattr(row, "見積金額", None)),
+                        internal_code=nz_str(raw_code),
                     )
-                )
-            ).first()
+                    db.session.add(vehicle)
+                    print(f"📝 Vehicle 追加: {key}")
+                else:
+                    print(f"📦 Vehicle 既に存在: {key}")
+                    # None の項目だけ補完
+                    if vehicle.status is None:
+                        vehicle.status = nz_str(getattr(row, "ステータス", None))
+                    if vehicle.condition is None:
+                        vehicle.condition = nz_str(getattr(row, "状態", None))
+                    if vehicle.pickup_date is None:
+                        vehicle.pickup_date = nz_str(getattr(row, "引取完了日", None))
+                    if vehicle.client is None:
+                        vehicle.client = nz_str(getattr(row, "依頼元", None))
+                    if vehicle.car_name is None:
+                        vehicle.car_name = nz_str(getattr(row, "車名", None))
+                    if vehicle.model_code is None:
+                        vehicle.model_code = nz_str(raw_model)
+                    if vehicle.year is None:
+                        vehicle.year = nz_str(getattr(row, "年式", None))
+                    if vehicle.vin is None:
+                        vehicle.vin = nz_str(getattr(row, "車台番号", None))
+                    if vehicle.color is None:
+                        vehicle.color = nz_str(getattr(row, "車色", None))
+                    if vehicle.estimate_price is None:
+                        vehicle.estimate_price = nz_str(getattr(row, "見積金額", None))
+                    db.session.add(vehicle)
 
-            if existing_info:
-                maker_name = existing_info.manufacturer_name
-                print(f"♻️ 既存のメーカー情報を再利用: {maker_name}")
-            else:
-                time.sleep(sleep_seconds)
-                maker_name = scrape_manufacturer(row.車名, row.認定型式)
+                scraped = ScrapedInfo.query.filter_by(vehicle_id=vehicle.id).first()
+                if scraped and scraped.manufacturer_name in ["仮メーカー", "不明"]:
+                    print(f"⏭ 仮メーカー or 不明は再スクレイピング不要: {raw_code}")
+                    to_log_after_commit.append(key)  # ✅ 記録だけして次へ
+                    continue
 
-            if maker_name == "不明":
-                fail_count += 1
-                fail_ids.append(row.自社管理番号)
-                print(f"⚠️ メーカー取得失敗（{fail_count}件目）")
+                # ---- スクレイピング（キーワード生成も行内で正規化）----
+                car_name_norm = to_zenkaku(str(getattr(row, "車名", ""))).replace("・", "")
+                model_code_norm = to_zenkaku(str(raw_model))
+                model_code_clean = re.sub(r"^[A-Z]+-", "", model_code_norm)
+                keyword = f"{car_name_norm} {model_code_clean}"
+                print(f"🔍 キーワード生成: {keyword}")
+
+                existing_info = ScrapedInfo.query.filter(
+                    ScrapedInfo.manufacturer_name.notin_(["不明", "仮メーカー"]),
+                    ScrapedInfo.vehicle.has(
+                        and_(Vehicle.car_name == getattr(row, "車名", None),
+                             Vehicle.model_code == raw_model)
+                    )
+                ).first()
+
+                if existing_info:
+                    maker_name = existing_info.manufacturer_name
+                    print(f"♻️ 既存のメーカー情報を再利用: {maker_name}")
+                else:
+                    time.sleep(sleep_seconds)
+                    maker_name = scrape_manufacturer(getattr(row, "車名", None), raw_model)
+
+                if maker_name == "不明":
+                    fail_ids.append(nz_str(raw_code))
+                    print(f"⚠️ メーカー取得失敗（累計 {len(fail_ids)}件）")
+                    if scraped:
+                        scraped.manufacturer_name = "不明"
+                        scraped.retrieved_date = datetime.now(JST)
+                        scraped.source_url = "https://www.kurumaerabi.com/"
+                    else:
+                        db.session.add(ScrapedInfo(
+                            vehicle=vehicle,
+                            manufacturer_name="不明",
+                            model_spec="取得失敗",
+                            retrieved_date=datetime.now(JST).date(),
+                            source_url="https://www.kurumaerabi.com/"
+                        ))
+                    to_log_after_commit.append(key)  # ✅ 失敗でも処理済みとして記録
+                    continue
+                else:
+                    success_count += 1
+
+                manufacturer = Manufacturer.query.filter_by(name=maker_name).first()
+                if not manufacturer:
+                    manufacturer = Manufacturer(name=maker_name)
+                    db.session.add(manufacturer)
+
+                vehicle.manufacturer = manufacturer
+
                 if scraped:
-                    scraped.manufacturer_name = "不明"
+                    scraped.manufacturer_name = maker_name
+                    scraped.model_spec = "取得予定"
                     scraped.retrieved_date = datetime.now(JST)
                     scraped.source_url = "https://www.kurumaerabi.com/"
-                    print("♻️ 仮メーカーを不明に更新")
+                    print(f"♻️ スクレイピング情報を更新: {raw_code}")
                 else:
-                    scraped = ScrapedInfo(
+                    db.session.add(ScrapedInfo(
                         vehicle=vehicle,
-                        manufacturer_name="不明",
-                        model_spec="取得失敗",
+                        manufacturer_name=maker_name,
+                        model_spec="取得予定",
                         retrieved_date=datetime.now(JST).date(),
                         source_url="https://www.kurumaerabi.com/"
-                    )
-                    db.session.add(scraped)
-                    print("🆕 不明として scraped_info を新規作成")
+                    ))
+                    print(f"🧾 スクレイピング情報追加: {raw_code}")
 
-                continue
-            else:
-                success_count += 1
-                fail_count = 0
+                added += 1
+                to_log_after_commit.append(key)  # ✅ 正常終了も記録
 
-            manufacturer = Manufacturer.query.filter_by(name=maker_name).first()
-            if not manufacturer:
-                manufacturer = Manufacturer(name=maker_name)
-                db.session.add(manufacturer)
-
-            vehicle.manufacturer = manufacturer
-
-            if scraped:
-                scraped.manufacturer_name = maker_name
-                scraped.model_spec = "取得予定"
-                scraped.retrieved_date = datetime.now(JST)
-                scraped.source_url = "https://www.kurumaerabi.com/"
-                print(f"♻️ スクレイピング情報を更新: {row.自社管理番号}")
-            else:
-                scraped_info = ScrapedInfo(
-                    vehicle=vehicle,
-                    manufacturer_name=maker_name,
-                    model_spec="取得予定",
-                    retrieved_date=datetime.now(JST).date(),
-                    source_url="https://www.kurumaerabi.com/"
-                )
-                db.session.add(scraped_info)
-                print(f"🧾 スクレイピング情報追加: {row.自社管理番号}")
-
-            added += 1
-
-            # ループ終了（ここに残りのコミットを入れる）
-        try:
-            # バッチでコミットしきれなかった残りを確実に確定
+            # ---- チャンク末尾：忘れずに確定・解放 ----
             db.session.commit()
-            db.session.flush()
-            # セッションからオブジェクトを外してメモリを解放
             db.session.expunge_all()
-            # Python の GC を明示的に呼ぶ
             gc.collect()
-            del df                            # ← 追加
+            flush_resume_log(to_log_after_commit)  # ✅ ログ追記
+            del df
             gc.collect()
+
         except Exception as e:
-            print("⚠️ 最終コミットでエラー:", e)
+            print("⚠️ チャンク処理中にエラー:", e)
             db.session.rollback()
+            # 失敗しても、次のチャンクへ進む（部分成功を活かす）
+            try:
+                flush_resume_log(to_log_after_commit)
+            except Exception:
+                pass
 
-    # ✅ CSVとして失敗IDを出力
-    fail_filename = None
-
-    # ✅ CSVとして失敗IDを出力（static フォルダに保存）
+    # 失敗IDを書き出し
     if fail_ids:
         fail_filename = "failed_ids.csv"
-        fail_path = os.path.join("static", fail_filename)  # ← 保存先を変更
-
+        fail_path = os.path.join("static", fail_filename)
+        os.makedirs(os.path.dirname(fail_path), exist_ok=True)
         with open(fail_path, mode="w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["internal_code"])
             for code in fail_ids:
                 writer.writerow([code])
         print(f"📄 失敗データを static/{fail_filename} に書き出しました（{len(fail_ids)}件）")
-    # ✅ 成功・失敗に関わらず DB への変更は最後に一括コミット
+
+    # 念のための最終コミット
     db.session.commit()
-        
-    # ✅ 以前の jsonify を削除して以下に差し替え
+
     return render_template("import_result.html",
         message=f"{added} 件の車両を登録しました",
         success_count=success_count,
