@@ -78,21 +78,32 @@ from rq.job import Job
 
 @bp.route('/jobs/<job_id>/status')
 def import_status_api(job_id):
-    q = _get_queue()
+    q = _get_queue()  # 既存の接続をそのまま使う
     try:
         job = Job.fetch(job_id, connection=q.connection)
     except Exception:
         return jsonify({'state': 'unknown'}), 404
 
+    status = job.get_status()  # queued / started / finished / failed
     meta = job.meta or {}
-    return jsonify({
-        'state': job.get_status(),   # queued / started / finished / failed
+
+    payload = {
+        'state': status,
         'progress': meta.get('progress', 0),
         'processed': meta.get('processed', 0),
         'success': meta.get('success', 0),
         'failed': meta.get('failed', 0),
         'message': meta.get('message', '')
-    })
+    }
+
+    # 追加：失敗時のスタックと、成功時の戻り値
+    if status == 'failed':
+        payload['error'] = job.exc_info  # ← これで原因が画面/Networkタブで見える
+    if job.is_finished:
+        payload['result'] = job.result
+
+    return jsonify(payload)
+
 
 @bp.route('/jobs/<job_id>')
 def import_status(job_id):

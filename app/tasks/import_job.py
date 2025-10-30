@@ -262,3 +262,54 @@ def process_csv_and_scrape(csv_path: str, resume: bool):
     if job:
         _set_progress(job, state="finished", processed=processed, success=success_count, failed=len(fail_ids))
     return {"added": added, "success": success_count, "failed": len(fail_ids)}
+
+# --- ここから追記（tasks/import_job.py の末尾に） ---
+import tempfile
+from rq import get_current_job
+
+def run(file_bytes: bytes, resume: bool = False):
+    """
+    /import_csv から渡ってくる CSV バイト列を一時ファイルに保存し、
+    既存の本処理 process_csv_and_scrape(csv_path, resume) を呼び出すだけの“つなぎ役”。
+    """
+    job = None
+    try:
+        job = get_current_job()
+    except Exception:
+        pass
+
+    # 初期メタ
+    if job:
+        _set_progress(job, progress=0, processed=0, success=0, failed=0, message="CSV 受信")
+
+    tmp_path = None
+    try:
+        # /tmp に一時CSVを書き出し
+        fd, tmp_path = tempfile.mkstemp(suffix=".csv", dir="/tmp")
+        os.close(fd)
+        with open(tmp_path, "wb") as f:
+            f.write(file_bytes)
+
+        if job:
+            _set_progress(job, message="CSV保存完了 → 解析開始")
+
+        # 既存の本処理を呼び出す（ここがあなたのロジック）
+        result = process_csv_and_scrape(tmp_path, resume)
+
+        if job:
+            _set_progress(job, progress=100, message="完了")
+        return result
+
+    except Exception as e:
+        # 失敗時は RQ 側の status=failed になります。理由は /jobs/<id>/status の error で見えるようにしてある。
+        if job:
+            _set_progress(job, message=f"run() 失敗: {e}")
+        raise
+
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+# --- 追記ここまで ---
