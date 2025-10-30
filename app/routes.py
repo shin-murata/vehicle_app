@@ -27,6 +27,8 @@ from scraper.scrape_maker import scrape_manufacturer
 import io
 from redis import Redis
 from rq import Queue
+# 追加：関数を直接 import（安全）
+from app.tasks.import_job import process_csv_and_scrape
 
 
 # ✅ 日本時間タイムゾーンを定義
@@ -54,10 +56,10 @@ def import_csv():
     if not file:
         return jsonify({'error': 'CSVファイルが必要です'}), 400
 
-    # /tmp に保存（Render は /tmp 書込可）
-    tmp_path = f"/tmp/import_{int(time.time())}.csv"
+    # ✅ バイト列で渡す
     file.stream.seek(0)
-    file.save(tmp_path)
+    file_bytes = file.read()
+
 
     # resume フラグ
     resume = (request.args.get("resume", "").lower() == "true")
@@ -67,8 +69,8 @@ def import_csv():
 
     # ✅ ジョブ投入
     job = q.enqueue(
-        "app.tasks.import_job.process_csv_and_scrape",
-        tmp_path,
+        process_csv_and_scrape,
+        file_bytes,
         resume,
         job_timeout=60 * 60 * 6,
         failure_ttl=60 * 60 * 24

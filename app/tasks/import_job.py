@@ -13,6 +13,9 @@ from sqlalchemy import and_
 from app import db
 from app.models import Vehicle, Manufacturer, ScrapedInfo
 from scraper.scrape_maker import scrape_manufacturer
+import io
+from rq import get_current_job
+# 既存の import はそのまま
 
 # JST
 JST = timezone(timedelta(hours=9))
@@ -26,10 +29,9 @@ def _set_progress(job, **kwargs):
     except Exception:
         pass
 
-def process_csv_and_scrape(csv_path: str, resume: bool):
+def process_csv_and_scrape(file_bytes: bytes, resume: bool):
     # RQ の現在ジョブ
     try:
-        from rq import get_current_job
         job = get_current_job()
     except Exception:
         job = None
@@ -77,8 +79,9 @@ def process_csv_and_scrape(csv_path: str, resume: bool):
                 f.write(f"{v}\n")
         ids.clear()
 
+    f = io.BytesIO(file_bytes)
     chunk_iter = pd.read_csv(
-        csv_path,
+        f,
         encoding='cp932',
         dtype=str,
         chunksize=CHUNK,
