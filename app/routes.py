@@ -23,12 +23,22 @@ from app.models import (
 )
 from app.forms import EstimationForm
 from scraper.scrape_maker import scrape_manufacturer
+# ---------- 追加インポート（RQ/Redis 用） ----------
+import io
+from redis import Redis
+from rq import Queue
+
 
 # ✅ 日本時間タイムゾーンを定義
 JST = timezone(timedelta(hours=9))
 
-
 bp = Blueprint('routes', __name__)
+# RQ キュー取得ヘルパー
+def _get_queue():
+    import os
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    conn = Redis.from_url(redis_url)
+    return Queue("default", connection=conn)
 
 @bp.route("/")
 def index():
@@ -39,300 +49,54 @@ def import_csv():
     if request.method == 'GET':
         return render_template("import_csv.html")
 
-    print("\n✅ /import_csv に到達")
+    # POST: ここではジョブ投入のみ
     file = request.files.get('file')
     if not file:
         return jsonify({'error': 'CSVファイルが必要です'}), 400
 
-    # ==== ここから：軽量化 & 再開準備 ===================================
-    # ✅ 文字正規化（行処理の中だけで使う：applymapは使わない）
-    def to_zenkaku(text):
-        if isinstance(text, str):
-            return unicodedata.normalize('NFKC', text)
-        return text
+    # ワーカー側で読むため /tmp に保存（Render は /tmp 書込可）
+    tmp_path = f"/tmp/import_{int(time.time())}.csv"
+    file.stream.seek(0)
+    file.save(tmp_path)
 
-    # ✅ 読み込む列だけに限定（ロジックは同じ。入庫番号等の列名はCSVどおり）
-    USECOLS = [
-        "入庫番号", "ステータス", "状態", "引取完了日", "依頼元",
-        "車名", "認定型式", "年式", "車台番号", "車色",
-        "見積金額", "自社管理番号"
-    ]
-
-    # ✅ チャンク/バッチ設定（メモリ削減）
-    CHUNK = 50
-    batch_size = 20
-    sleep_seconds = 4
-
-    # ✅ 再開（resume）機能
-    RESUME_LOG_PATH = os.path.join("static", "processed_intake_numbers.txt")
+    # resume フラグ（?resume=true 互換）
     resume = (request.args.get("resume", "").lower() == "true")
 
-    # 既存の処理済み入庫番号を読み込み
-    processed_ids_from_log = set()
-    if resume and os.path.exists(RESUME_LOG_PATH):
-        with open(RESUME_LOG_PATH, "r") as f:
-            for line in f:
-                s = line.strip()
-                if s:
-                    try:
-                        processed_ids_from_log.add(int(s))
-                    except ValueError:
-                        pass
-        print(f"♻️ resume: ログから {len(processed_ids_from_log)} 件をスキップ対象として読み込み")
-    # ===============================================================
-
-    # pandas のチャンクイテレータ（dtype=str で型膨張抑制）
-    file.stream.seek(0)
-    chunk_iter = pd.read_csv(
-        file.stream,
-        encoding='cp932',
-        dtype=str,
-        chunksize=CHUNK,
-        usecols=USECOLS     # ✅ 追加：必要列だけ読む
+    # ジョブ投入
+    from tasks.import_job import process_csv_and_scrape
+    q = _get_queue()
+    job = q.enqueue(
+        process_csv_and_scrape,
+        tmp_path,
+        resume,
+        job_timeout=60 * 60 * 6,      # 最大6時間など十分に
+        failure_ttl=60 * 60 * 24
     )
+    return redirect(url_for('routes.import_status', job_id=job.get_id()))
 
-    added = 0
-    fail_ids = []
-    success_count = 0
-    processed = 0
+from rq.job import Job
 
-    # CSV内重複スキップ（チャンク跨ぎ対応）
-    seen_in_csv = set()
+@bp.route('/jobs/<job_id>/status')
+def import_status_api(job_id):
+    q = _get_queue()
+    try:
+        job = Job.fetch(job_id, connection=q.connection)
+    except Exception:
+        return jsonify({'state': 'unknown'}), 404
 
-    # ログ追記用（一括で追記してI/Oを減らす）
-    to_log_after_commit: list[int] = []
+    meta = job.meta or {}
+    return jsonify({
+        'state': job.get_status(),   # queued / started / finished / failed
+        'progress': meta.get('progress', 0),
+        'processed': meta.get('processed', 0),
+        'success': meta.get('success', 0),
+        'failed': meta.get('failed', 0),
+        'message': meta.get('message', '')
+    })
 
-    def flush_resume_log(ids: list[int]):
-        if not ids:
-            return
-        os.makedirs(os.path.dirname(RESUME_LOG_PATH), exist_ok=True)
-        with open(RESUME_LOG_PATH, "a") as f:
-            for v in ids:
-                f.write(f"{v}\n")
-        ids.clear()
-
-    for df in chunk_iter:
-        try:
-            # ---- 行ループ（ここでだけ正規化して使う）----
-            for row in df.itertuples():
-                # 取り出し＆軽量正規化（使うものだけ）
-                raw_intake = getattr(row, "入庫番号", None)
-                raw_code   = getattr(row, "自社管理番号", None)
-
-                # 入庫番号キーの決定
-                key = None
-                if raw_intake is not None and str(raw_intake).strip() != "" and not pd.isna(raw_intake):
-                    try:
-                        key = int(str(raw_intake).strip())
-                    except ValueError:
-                        key = None
-
-                print(f"\n🚗 処理中: {raw_code}")
-
-                if key is None:
-                    print("⚠️ 入庫番号が無いためスキップ")
-                    continue
-
-                # 再開スキップ（既に処理済み）
-                if resume and key in processed_ids_from_log:
-                    print(f"⏭ resume: 既処理のためスキップ: {key}")
-                    continue
-
-                # 同一CSV内重複スキップ
-                if key in seen_in_csv:
-                    print(f"⏭ CSV内重複のためスキップ: {key}")
-                    continue
-                seen_in_csv.add(key)
-
-                # 型式チェック（必要時だけ正規化）
-                raw_model = getattr(row, "認定型式", None)
-                if (raw_model is None) or pd.isna(raw_model) or str(raw_model).strip() == "":
-                    print(f"⚠️ 型式が空またはNaNのためスキップ: {raw_code}")
-                    continue
-
-                # バッチ境目でコミット＆メモリ解放
-                processed += 1
-                if processed > 0 and processed % batch_size == 0:
-                    print(f"⏸ {batch_size}件処理ごとにコミット＆メモリ解放中...")
-                    try:
-                        db.session.commit()
-                        db.session.expunge_all()
-                        gc.collect()
-                        flush_resume_log(to_log_after_commit)  # ✅ ログ追記
-                    except Exception as e:
-                        print("⚠️ バッチコミット中にエラー:", e)
-                        db.session.rollback()
-                    time.sleep(sleep_seconds)
-
-                # 既存車両の存在チェック
-                vehicle = Vehicle.query.filter_by(intake_number=key).first()
-
-                # 既存＆確定済みは早期スキップ
-                if vehicle:
-                    scraped = ScrapedInfo.query.filter_by(vehicle_id=vehicle.id).first()
-                    if vehicle.manufacturer_id or (scraped and scraped.manufacturer_name not in ["仮メーカー", "不明"]):
-                        print(f"⏭ 既存 & メーカー確定済みのためスキップ: {key}")
-                        to_log_after_commit.append(key)  # ✅ スキップでも「処理済み」として記録
-                        continue
-
-                # ---- Vehicle の新規作成 or 補完 ----
-                def nz_str(v):
-                    return None if (v is None or pd.isna(v) or str(v).strip() == "") else to_zenkaku(str(v))
-
-                if not vehicle:
-                    vehicle = Vehicle(
-                        intake_number=key,
-                        status=nz_str(getattr(row, "ステータス", None)),
-                        condition=nz_str(getattr(row, "状態", None)),
-                        pickup_date=nz_str(getattr(row, "引取完了日", None)),
-                        client=nz_str(getattr(row, "依頼元", None)),
-                        car_name=nz_str(getattr(row, "車名", None)),
-                        model_code=nz_str(raw_model),
-                        year=nz_str(getattr(row, "年式", None)),
-                        vin=nz_str(getattr(row, "車台番号", None)),
-                        color=nz_str(getattr(row, "車色", None)),
-                        estimate_price=nz_str(getattr(row, "見積金額", None)),
-                        internal_code=nz_str(raw_code),
-                    )
-                    db.session.add(vehicle)
-                    print(f"📝 Vehicle 追加: {key}")
-                else:
-                    print(f"📦 Vehicle 既に存在: {key}")
-                    # None の項目だけ補完
-                    if vehicle.status is None:
-                        vehicle.status = nz_str(getattr(row, "ステータス", None))
-                    if vehicle.condition is None:
-                        vehicle.condition = nz_str(getattr(row, "状態", None))
-                    if vehicle.pickup_date is None:
-                        vehicle.pickup_date = nz_str(getattr(row, "引取完了日", None))
-                    if vehicle.client is None:
-                        vehicle.client = nz_str(getattr(row, "依頼元", None))
-                    if vehicle.car_name is None:
-                        vehicle.car_name = nz_str(getattr(row, "車名", None))
-                    if vehicle.model_code is None:
-                        vehicle.model_code = nz_str(raw_model)
-                    if vehicle.year is None:
-                        vehicle.year = nz_str(getattr(row, "年式", None))
-                    if vehicle.vin is None:
-                        vehicle.vin = nz_str(getattr(row, "車台番号", None))
-                    if vehicle.color is None:
-                        vehicle.color = nz_str(getattr(row, "車色", None))
-                    if vehicle.estimate_price is None:
-                        vehicle.estimate_price = nz_str(getattr(row, "見積金額", None))
-                    db.session.add(vehicle)
-
-                scraped = ScrapedInfo.query.filter_by(vehicle_id=vehicle.id).first()
-                if scraped and scraped.manufacturer_name in ["仮メーカー", "不明"]:
-                    print(f"⏭ 仮メーカー or 不明は再スクレイピング不要: {raw_code}")
-                    to_log_after_commit.append(key)  # ✅ 記録だけして次へ
-                    continue
-
-                # ---- スクレイピング（キーワード生成も行内で正規化）----
-                car_name_norm = to_zenkaku(str(getattr(row, "車名", ""))).replace("・", "")
-                model_code_norm = to_zenkaku(str(raw_model))
-                model_code_clean = re.sub(r"^[A-Z]+-", "", model_code_norm)
-                keyword = f"{car_name_norm} {model_code_clean}"
-                print(f"🔍 キーワード生成: {keyword}")
-
-                existing_info = ScrapedInfo.query.filter(
-                    ScrapedInfo.manufacturer_name.notin_(["不明", "仮メーカー"]),
-                    ScrapedInfo.vehicle.has(
-                        and_(Vehicle.car_name == getattr(row, "車名", None),
-                             Vehicle.model_code == raw_model)
-                    )
-                ).first()
-
-                if existing_info:
-                    maker_name = existing_info.manufacturer_name
-                    print(f"♻️ 既存のメーカー情報を再利用: {maker_name}")
-                else:
-                    time.sleep(sleep_seconds)
-                    maker_name = scrape_manufacturer(getattr(row, "車名", None), raw_model)
-
-                if maker_name == "不明":
-                    fail_ids.append(nz_str(raw_code))
-                    print(f"⚠️ メーカー取得失敗（累計 {len(fail_ids)}件）")
-                    if scraped:
-                        scraped.manufacturer_name = "不明"
-                        scraped.retrieved_date = datetime.now(JST)
-                        scraped.source_url = "https://www.kurumaerabi.com/"
-                    else:
-                        db.session.add(ScrapedInfo(
-                            vehicle=vehicle,
-                            manufacturer_name="不明",
-                            model_spec="取得失敗",
-                            retrieved_date=datetime.now(JST).date(),
-                            source_url="https://www.kurumaerabi.com/"
-                        ))
-                    to_log_after_commit.append(key)  # ✅ 失敗でも処理済みとして記録
-                    continue
-                else:
-                    success_count += 1
-
-                manufacturer = Manufacturer.query.filter_by(name=maker_name).first()
-                if not manufacturer:
-                    manufacturer = Manufacturer(name=maker_name)
-                    db.session.add(manufacturer)
-
-                vehicle.manufacturer = manufacturer
-
-                if scraped:
-                    scraped.manufacturer_name = maker_name
-                    scraped.model_spec = "取得予定"
-                    scraped.retrieved_date = datetime.now(JST)
-                    scraped.source_url = "https://www.kurumaerabi.com/"
-                    print(f"♻️ スクレイピング情報を更新: {raw_code}")
-                else:
-                    db.session.add(ScrapedInfo(
-                        vehicle=vehicle,
-                        manufacturer_name=maker_name,
-                        model_spec="取得予定",
-                        retrieved_date=datetime.now(JST).date(),
-                        source_url="https://www.kurumaerabi.com/"
-                    ))
-                    print(f"🧾 スクレイピング情報追加: {raw_code}")
-
-                added += 1
-                to_log_after_commit.append(key)  # ✅ 正常終了も記録
-
-            # ---- チャンク末尾：忘れずに確定・解放 ----
-            db.session.commit()
-            db.session.expunge_all()
-            gc.collect()
-            flush_resume_log(to_log_after_commit)  # ✅ ログ追記
-            del df
-            gc.collect()
-
-        except Exception as e:
-            print("⚠️ チャンク処理中にエラー:", e)
-            db.session.rollback()
-            # 失敗しても、次のチャンクへ進む（部分成功を活かす）
-            try:
-                flush_resume_log(to_log_after_commit)
-            except Exception:
-                pass
-
-    # 失敗IDを書き出し
-    if fail_ids:
-        fail_filename = "failed_ids.csv"
-        fail_path = os.path.join("static", fail_filename)
-        os.makedirs(os.path.dirname(fail_path), exist_ok=True)
-        with open(fail_path, mode="w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["internal_code"])
-            for code in fail_ids:
-                writer.writerow([code])
-        print(f"📄 失敗データを static/{fail_filename} に書き出しました（{len(fail_ids)}件）")
-
-    # 念のための最終コミット
-    db.session.commit()
-
-    return render_template("import_result.html",
-        message=f"{added} 件の車両を登録しました",
-        success_count=success_count,
-        fail_count=len(fail_ids),
-        fail_file="failed_ids.csv" if fail_ids else None
-    )
+@bp.route('/jobs/<job_id>')
+def import_status(job_id):
+    return render_template("import_status.html", job_id=job_id)
 
 
 # ✅ 一覧表示 & キーワード絞り込みルート

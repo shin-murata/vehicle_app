@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>インポート進捗</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 16px; }
+    .meter { height: 12px; background: #eee; border-radius: 8px; overflow: hidden; margin: 8px 0 16px; }
+    .meter > span { display: block; height: 100%; background: #3b82f6; width: 0%; transition: width .3s; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #555; }
+  </style>
+</head>
+<body>
+  <h1>CSVインポート中…</h1>
+  <div>Job ID: <code id="jobId">{{ job_id }}</code></div>
+  <div id="state">状態: -</div>
+  <div class="meter"><span id="bar"></span></div>
+  <div>処理件数: <span id="processed">0</span> / 成功: <span id="success">0</span> / 失敗: <span id="failed">0</span></div>
+  <div class="mono" id="message"></div>
+
+  <script>
+    const jobId = "{{ job_id }}";
+    const stateEl = document.getElementById('state');
+    const barEl = document.getElementById('bar');
+    const processedEl = document.getElementById('processed');
+    const successEl = document.getElementById('success');
+    const failedEl = document.getElementById('failed');
+    const msgEl = document.getElementById('message');
+
+    async function tick(){
+      const res = await fetch(`/jobs/${jobId}/status`);
+      if(!res.ok){ stateEl.textContent = "状態: 不明"; return; }
+      const j = await res.json();
+      stateEl.textContent = `状態: ${j.state}`;
+      processedEl.textContent = j.processed ?? 0;
+      successEl.textContent = j.success ?? 0;
+      failedEl.textContent = j.failed ?? 0;
+      msgEl.textContent = j.message ?? "";
+
+      const p = Math.min(100, (j.processed || 0) % 100);
+      barEl.style.width = p + "%";
+
+      if (j.state === "finished" || j.state === "failed") {
+        clearInterval(timer);
+      }
+    }
+    const timer = setInterval(tick, 3000);
+    tick();
+  </script>
+</body>
+</html>
