@@ -54,23 +54,28 @@ def import_csv():
     if not file:
         return jsonify({'error': 'CSVファイルが必要です'}), 400
 
-    # ワーカー側で読むため /tmp に保存（Render は /tmp 書込可）
+    # /tmp に保存（Render は /tmp 書込可）
     tmp_path = f"/tmp/import_{int(time.time())}.csv"
     file.stream.seek(0)
     file.save(tmp_path)
 
-    # resume フラグ（?resume=true 互換）
+    # resume フラグ
     resume = (request.args.get("resume", "").lower() == "true")
 
-    # ジョブ投入（モジュールパスの文字列で指定）
+    # ✅ Redisキューを取得
+    q = _get_queue()
+
+    # ✅ ジョブ投入
     job = q.enqueue(
-        "tasks.import_job.process_csv_and_scrape",  # ← ここを文字列に
+        "tasks.import_job.process_csv_and_scrape",
         tmp_path,
         resume,
         job_timeout=60 * 60 * 6,
         failure_ttl=60 * 60 * 24
     )
+
     return redirect(url_for('routes.import_status', job_id=job.get_id()))
+
 
 from rq.job import Job
 
