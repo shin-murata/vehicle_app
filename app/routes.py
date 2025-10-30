@@ -67,7 +67,7 @@ def import_csv():
 
     # ✅ ジョブ投入
     job = q.enqueue(
-        "tasks.import_job.process_csv_and_scrape",
+        "app.tasks.import_job.process_csv_and_scrape",
         tmp_path,
         resume,
         job_timeout=60 * 60 * 6,
