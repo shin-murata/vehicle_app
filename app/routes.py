@@ -62,14 +62,12 @@ def import_csv():
     # resume フラグ（?resume=true 互換）
     resume = (request.args.get("resume", "").lower() == "true")
 
-    # ジョブ投入
-    from tasks.import_job import process_csv_and_scrape
-    q = _get_queue()
+    # ジョブ投入（モジュールパスの文字列で指定）
     job = q.enqueue(
-        process_csv_and_scrape,
+        "tasks.import_job.process_csv_and_scrape",  # ← ここを文字列に
         tmp_path,
         resume,
-        job_timeout=60 * 60 * 6,      # 最大6時間など十分に
+        job_timeout=60 * 60 * 6,
         failure_ttl=60 * 60 * 24
     )
     return redirect(url_for('routes.import_status', job_id=job.get_id()))
