@@ -120,9 +120,10 @@ def import_status(job_id):
 def list_vehicles():
     keyword = request.args.get("keyword", "").strip()
 
-    # ★ デフォルトキーを internal_code に変更
-    sort_key    = request.args.get("sort", "internal_code")
-    sort_order  = request.args.get("order", "desc")        # 降順固定で OK
+    # ★ デフォルトキーを入庫番号（intake_number）に変更
+    # デフォルト表示は「入庫番号の新しいもの（降順）」にする
+    sort_key    = request.args.get("sort", "intake_number")
+    sort_order  = request.args.get("order", "desc")        # 降順がデフォルト
 
     # ✅ 対応可能なソートキー
     sort_fields = {
